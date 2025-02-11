@@ -1,0 +1,3 @@
+mujoco-py
+numpy
+matplotlib
