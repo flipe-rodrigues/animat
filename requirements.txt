@@ -1,3 +1,4 @@
-mujoco-py
+mujoco
+torch
 numpy
 matplotlib
