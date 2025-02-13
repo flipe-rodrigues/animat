@@ -7,6 +7,8 @@
   </default>
 
   <worldbody>
+
+    <camera pos="0 -2 0" xyaxes="1 0 0 0 0 1"/>
     <light pos="0 1 1" dir="0 -1 -1" diffuse="1 1 1"/>
 
     <!-- TRUNK -->
@@ -59,6 +61,11 @@
           </body>
         </body>
       </body>
+    </body>
+
+    <body pos="0.3 0 -.3">
+      <!-- <joint type="free"/> -->
+      <geom size="0.07 0.1" type="cylinder"/>
     </body>
   </worldbody>
   
