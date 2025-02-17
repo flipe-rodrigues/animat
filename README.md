@@ -29,9 +29,3 @@ python src/main.py
 ```
 
 This will initialize the MuJoCo environment and start the simulation loop for the 2-joint arm.
-
-## Contributing
-Feel free to contribute to this project by submitting issues or pull requests. Your feedback and suggestions are welcome!
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for more details.
