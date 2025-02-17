@@ -1,6 +1,5 @@
 import mujoco
 import mujoco.viewer
-import pygame
 import numpy as np
 import time
 
@@ -52,5 +51,3 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
         time_until_next_step = model.opt.timestep - (time.time() - step_start)
         if time_until_next_step > 0:
             time.sleep(time_until_next_step)
-
-    pygame.quit()
