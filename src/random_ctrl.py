@@ -1,38 +1,3 @@
-# import mujoco
-# import pygame
-
-# # Load the model
-# model = mujoco.MjModel.from_xml_path('mujoco/arm_model.xml')
-# data = mujoco.MjData(model)
-
-# # Initialize pygame
-# pygame.init()
-# screen = pygame.display.set_mode((640, 480))
-# pygame.display.set_caption('Control Biceps Muscle')
-
-# # Control parameter index for the biceps muscle
-# biceps_control_index = 0  # Adjust this index based on your model
-
-# # Main loop
-# running = True
-# while running:
-#     for event in pygame.event.get():
-#         if event.type == pygame.QUIT:
-#             running = False
-#         elif event.type == pygame.KEYDOWN:
-#             if event.key == pygame.K_SPACE:
-#                 data.ctrl[biceps_control_index] += increment  # Increase control parameter
-#                 print(f"Biceps control parameter increased to: {data.ctrl[biceps_control_index]}")
-
-#     # Step the simulation
-#     mujoco.mj_step(model, data)
-
-#     # Render the simulation (optional)
-#     mujoco.mjv_updateScene(model, data, None, None, None, None)
-#     mujoco.mjr_render(screen, None)
-
-# pygame.quit()
-
 import mujoco
 import mujoco.viewer
 import pygame
