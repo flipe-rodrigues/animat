@@ -87,5 +87,5 @@ plt.tight_layout()
 plt.ion()  
 plt.show()
 plt.pause(10)  
-plt.savefig('../figs/sensors.png')
+plt.savefig('figs/sensors.png')
 
