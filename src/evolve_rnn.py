@@ -18,9 +18,9 @@ class RNN:
         self.output_size = output_size
 
         # Initialize RNN weights
-        self.W_ih = np.random.randn(hidden_size, input_size) * 0.1
-        self.W_hh = np.random.randn(hidden_size, hidden_size) * 0.1
-        self.W_ho = np.random.randn(output_size, hidden_size) * 0.1
+        self.W_ih = np.random.randn(hidden_size, input_size)
+        self.W_hh = np.random.randn(hidden_size, hidden_size)
+        self.W_ho = np.random.randn(output_size, hidden_size)
         self.h = np.zeros(hidden_size)  # Hidden state
 
     def reset(self):
@@ -99,23 +99,24 @@ class EvolutionaryLearner:
         for trial in range(self.num_trials):
             env.reset()
             target_pos = env.sample_target()
-            initial_distance = 1 # env.distance(env.get_pos('hand'), target_pos)
+            initial_distance = env.distance(env.get_pos('hand'), target_pos)
 
             while env.data.time < self.trial_dur:
                 sensory_feedback = env.get_obs()
                 input_vec = np.concatenate([target_pos, sensory_feedback])
                 muscle_activations = rnn.step(input_vec)
+                total_activation = sum(muscle_activations)
                 env.step(muscle_activations)
                 distance = env.distance(env.get_pos('hand'), target_pos)
                 norm_distance = distance / initial_distance
-                total_reward -= norm_distance
+                total_reward -= norm_distance + total_activation
 
         average_reward = total_reward / self.trial_dur / self.num_trials
 
         return average_reward
 
     def render(self, params, num_trials):
-        """Evaluate fitness of a given RNN policy"""
+        """Render a couple of trials for a set of RNN params"""
         
         rnn = self.params_to_rnn(params)
         rnn.reset()
@@ -132,9 +133,11 @@ class EvolutionaryLearner:
                 viewer.cam.lookat[:] = [0, 0, -.5]
                 viewer.cam.azimuth = 90
                 viewer.cam.elevation = 0
+                # viewer.overlay[mujoco.viewer.GRID_TOPLEFT] = "Simulation Running"
+                # viewer.overlay[mujoco.viewer.GRID_BOTTOMRIGHT] = "Some other text"
                 viewer.sync()
 
-                while env.data.time < self.trial_dur:
+                while viewer.is_running() & env.data.time < self.trial_dur:
                     step_start = time.time()
 
                     sensory_feedback = env.get_obs()
@@ -244,7 +247,7 @@ class EvolutionaryLearner:
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
-    learner = EvolutionaryLearner(trial_dur=3, num_trials=25, num_individuals=50, num_generations=100, mutation_rate=.02)
+    learner = EvolutionaryLearner(trial_dur=3, num_trials=25, num_individuals=50, num_generations=100, mutation_rate=.1)
     best_params = learner.evolve()
     # best_params = learner.evolve_parallel()
 
