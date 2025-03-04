@@ -6,6 +6,7 @@ import time
 import mujoco
 import mujoco.viewer
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 #%%
 
@@ -28,8 +29,8 @@ class RNN:
 
     def step(self, input):
         """Compute one RNN step"""
-        self.h = 1 / (1 + np.exp(-np.dot(self.W_ih, input) - np.dot(self.W_hh, self.h)))  # Sigmoid activation for hidden state
-        output = 1 / (1 + np.exp(-np.dot(self.W_ho, self.h)))  # Sigmoid activation for output
+        self.h = 1 / (1 + np.exp(-np.dot(self.W_ih, input) - np.dot(self.W_hh, self.h)))
+        output = 1 / (1 + np.exp(-np.dot(self.W_ho, self.h)))
         return output
 
 # Mujoco Environment for 2-Joint Limb
@@ -56,10 +57,10 @@ class Limb2DMujoco:
         sensor_data = self.data.sensordata
         return sensor_data
     
-    def get_pos(self):
+    def get_pos(self, geom_name):
         """Return current position of the end effector"""
-        hand_id = self.model.geom('hand').id
-        return self.data.geom_xpos[hand_id][:].copy()
+        geom_id = self.model.geom(geom_name).id
+        return self.data.geom_xpos[geom_id][:].copy()
 
     def sample_target(self):
         """Read a random target position from targets.csv"""
@@ -67,6 +68,9 @@ class Limb2DMujoco:
         target_pos = self.targets[random_index]
         self.data.mocap_pos = target_pos
         return target_pos
+    
+    def distance(self, pos1, pos2):
+        return np.linalg.norm(pos1 - pos2)
     
 # Evolutionary Strategy (ES) Optimization
 class EvolutionaryLearner:
@@ -88,9 +92,6 @@ class EvolutionaryLearner:
         rnn = self.params_to_rnn(self.population[individual])
         rnn.reset()
 
-        # progress = (individual + 1) / self.num_individuals
-        # print(f"Progress: {progress:.2%}")
-
         env = Limb2DMujoco()
 
         total_reward = 0
@@ -98,50 +99,64 @@ class EvolutionaryLearner:
         for trial in range(self.num_trials):
             env.reset()
             target_pos = env.sample_target()
+            initial_distance = 1 # env.distance(env.get_pos('hand'), target_pos)
 
-            if render == True and trial == 0 and individual == 0:
-                with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
-                    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
-                    viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-                    viewer.cam.lookat[:] = [0, 0, -.5]
-                    viewer.cam.azimuth = 90
-                    viewer.cam.elevation = 0
-                    viewer.sync()
+            while env.data.time < self.trial_dur:
+                sensory_feedback = env.get_obs()
+                input_vec = np.concatenate([target_pos, sensory_feedback])
+                muscle_activations = rnn.step(input_vec)
+                env.step(muscle_activations)
+                distance = env.distance(env.get_pos('hand'), target_pos)
+                norm_distance = distance / initial_distance
+                total_reward -= norm_distance
 
-                    while viewer.is_running():
-                        while env.data.time < self.trial_dur:
-                            step_start = time.time()
+        average_reward = total_reward / self.trial_dur / self.num_trials
 
-                            sensory_feedback = env.get_obs()
-                            input_vec = np.concatenate([target_pos, sensory_feedback])
-                            muscle_activations = rnn.step(input_vec)
-                            env.step(muscle_activations)
-                            distance = np.linalg.norm(env.get_pos() - target_pos)
-                            total_reward -= distance / self.num_trials
-                                
-                            viewer.sync()
+        return average_reward
 
-                            # Rudimentary time keeping, will drift relative to wall clock.
-                            time_until_next_step = env.model.opt.timestep - (time.time() - step_start)
-                            if time_until_next_step > 0:
-                                time.sleep(time_until_next_step)
+    def render(self, params, num_trials):
+        """Evaluate fitness of a given RNN policy"""
+        
+        rnn = self.params_to_rnn(params)
+        rnn.reset()
 
-                        viewer.close()
-            else:
+        env = Limb2DMujoco()
+
+        for trial in range(min(num_trials, self.num_trials)):
+            env.reset()
+            target_pos = env.sample_target()
+
+            with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
+                viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
+                viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
+                viewer.cam.lookat[:] = [0, 0, -.5]
+                viewer.cam.azimuth = 90
+                viewer.cam.elevation = 0
+                viewer.sync()
+
                 while env.data.time < self.trial_dur:
+                    step_start = time.time()
+
                     sensory_feedback = env.get_obs()
                     input_vec = np.concatenate([target_pos, sensory_feedback])
                     muscle_activations = rnn.step(input_vec)
                     env.step(muscle_activations)
-                    distance = np.linalg.norm(env.get_pos() - target_pos)
-                    total_reward -= distance / self.num_trials
+                        
+                    viewer.sync()
 
-        return total_reward
+                    # Rudimentary time keeping, will drift relative to wall clock.
+                    time_until_next_step = env.model.opt.timestep - (time.time() - step_start)
+                    if time_until_next_step > 0:
+                        time.sleep(time_until_next_step)
+
+                viewer.close()
 
     def params_to_rnn(self, params):
         """Convert flat parameters into RNN weight matrices"""
         rnn = RNN(15, 25, 4)
+        
         idx = 0
+
         size_Wih = rnn.hidden_size * rnn.input_size
         size_Whh = rnn.hidden_size * rnn.hidden_size
         size_Who = rnn.output_size * rnn.hidden_size
@@ -156,8 +171,10 @@ class EvolutionaryLearner:
 
     def evolve(self):
         """Run evolutionary learning process"""
+        best_fitness = -np.inf
+        best_params = []
         for gen in range(self.num_generations):
-            fitnesses = np.array([self.evaluate(i, render=True) for i in tqdm(range(self.num_individuals), desc="Evaluating")])
+            fitnesses = np.array([self.evaluate(i, render=False) for i in tqdm(range(self.num_individuals), desc="Evaluating")])
             best_idx = np.argmax(fitnesses)
             worst_idx = np.argmin(fitnesses)
 
@@ -169,14 +186,52 @@ class EvolutionaryLearner:
 
             # Mutate top performers to create offspring
             new_population = []
-            for individual in self.population:
+            for params in self.population:
                 for _ in range(2):  # Each parent creates 2 offspring
-                    child = individual + np.random.randn(len(individual)) * self.mutation_rate
+                    child = params + np.random.randn(len(params)) * self.mutation_rate
                     new_population.append(child)
 
             self.population = new_population[:self.num_individuals]
 
-        return self.population[0]  # Return best evolved parameters
+            self.render(self.population[0], num_trials=3)
+
+            if np.max(fitnesses) > best_fitness:
+                best_params = self.population[0]    
+
+        return best_params  # Return best evolved parameters
+
+    # def evolve_parallel(self):
+    #     """Run evolutionary learning process"""
+    #     best_fitness = -np.inf
+    #     best_params = []
+    #     for gen in range(self.num_generations):
+    #         with ThreadPoolExecutor() as executor:
+    #             fitnesses = list(tqdm(executor.map(self.evaluate, range(self.num_individuals)), total=self.num_individuals, desc="Evaluating"))
+    #         fitnesses = np.array(fitnesses)
+    #         best_idx = np.argmax(fitnesses)
+    #         worst_idx = np.argmin(fitnesses)
+
+    #         print(f"Generation {gen+1}, Best Fitness: {fitnesses[best_idx]:.4f}, Worst Fitness: {fitnesses[worst_idx]:.4f}")
+
+    #         # Select top individuals
+    #         sorted_indices = np.argsort(fitnesses)[::-1]
+    #         self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // 2]]
+
+    #         # Mutate top performers to create offspring
+    #         new_population = []
+    #         for params in self.population:
+    #             for _ in range(2):  # Each parent creates 2 offspring
+    #                 child = params + np.random.randn(len(params)) * self.mutation_rate
+    #                 new_population.append(child)
+
+    #         self.population = new_population[:self.num_individuals]
+
+    #         self.render(self.population[0], num_trials=3)
+
+    #         if np.max(fitnesses) > best_fitness:
+    #             best_params = self.population[0]    
+
+    #     return best_params  # Return best evolved parameters
 
 #%%
 """
@@ -189,8 +244,9 @@ class EvolutionaryLearner:
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
-    learner = EvolutionaryLearner(trial_dur=3, num_trials=10, num_individuals=50, num_generations=100, mutation_rate=.1)
+    learner = EvolutionaryLearner(trial_dur=3, num_trials=25, num_individuals=50, num_generations=100, mutation_rate=.02)
     best_params = learner.evolve()
+    # best_params = learner.evolve_parallel()
 
 #%%
 # Plot RNN weights as heatmaps
