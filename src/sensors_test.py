@@ -9,7 +9,7 @@ MODEL_XML_PATH = "../mujoco/arm_model.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
-duration = 10000
+duration = 100
 time_data = []
 hand_id = model.geom('hand').id
 hand_positions = []
@@ -85,8 +85,8 @@ plt.title('Hand position')
 plt.xlabel('x')
 plt.ylabel('y')
 hand_position = np.array(hand_positions)
-plt.plot(hand_position[:, 0], hand_position[:, 2], '.')
+plt.plot(hand_position[:, 0], hand_position[:, 2], '.', markersize=1)
 plt.show()
 
 # %%
-np.savetxt("targets.csv", hand_position, delimiter=",", header="x,y,z", comments="", fmt="%.3f")
+# np.savetxt("targets.csv", hand_position, delimiter=",", header="x,y,z", comments="", fmt="%.3f")
