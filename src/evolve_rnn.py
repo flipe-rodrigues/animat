@@ -18,19 +18,22 @@ class RNN:
         self.output_size = output_size
 
         # Initialize RNN weights
-        self.W_ih = np.random.randn(hidden_size, input_size)
-        self.W_hh = np.random.randn(hidden_size, hidden_size)
-        self.W_ho = np.random.randn(output_size, hidden_size)
+        self.W_ih = np.random.randn(hidden_size, input_size) * np.sqrt(1. / input_size)
+        self.W_hh = np.random.randn(hidden_size, hidden_size) * np.sqrt(1. / hidden_size)
+        self.W_ho = np.random.randn(output_size, hidden_size) * np.sqrt(1. / hidden_size)
         self.h = np.zeros(hidden_size)  # Hidden state
+
+        # test without evo, different targets
+        # xavier initialization
 
     def reset(self):
         """Reset hidden state between episodes"""
-        self.h = np.zeros(self.hidden_size)
+        self.h = np.zeros(self.hidden_size) + .5 # init in the middle
 
     def step(self, input):
         """Compute one RNN step"""
-        self.h = 1 / (1 + np.exp(-np.dot(self.W_ih, input) - np.dot(self.W_hh, self.h)))
-        output = 1 / (1 + np.exp(-np.dot(self.W_ho, self.h)))
+        self.h = 1 / (1 + np.exp(-self.W_ih @ input - self.W_hh @ self.h))
+        output = 1 / (1 + np.exp(-self.W_ho @ self.h))
         return output
 
 # Mujoco Environment for 2-Joint Limb
@@ -84,7 +87,8 @@ class EvolutionaryLearner:
 
     def init_params(self):
         """Initialize RNN parameters"""
-        return np.random.randn(25 * (15 + 25 + 4)) * 0.1
+        num_params = 25 * (15 + 25 + 4)
+        return np.random.randn(num_params) * np.sqrt(1. / num_params)
 
     def evaluate(self, individual, render=False):
         """Evaluate fitness of a given RNN policy"""
@@ -109,9 +113,9 @@ class EvolutionaryLearner:
                 env.step(muscle_activations)
                 distance = env.distance(env.get_pos('hand'), target_pos)
                 norm_distance = distance / initial_distance
-                total_reward -= norm_distance + total_activation
+                total_reward -= norm_distance # + total_activation
 
-        average_reward = total_reward / self.trial_dur / self.num_trials
+        average_reward = total_reward # / self.trial_dur / self.num_trials
 
         return average_reward
 
@@ -133,11 +137,9 @@ class EvolutionaryLearner:
                 viewer.cam.lookat[:] = [0, 0, -.5]
                 viewer.cam.azimuth = 90
                 viewer.cam.elevation = 0
-                # viewer.overlay[mujoco.viewer.GRID_TOPLEFT] = "Simulation Running"
-                # viewer.overlay[mujoco.viewer.GRID_BOTTOMRIGHT] = "Some other text"
                 viewer.sync()
 
-                while viewer.is_running() & env.data.time < self.trial_dur:
+                while viewer.is_running() and env.data.time < self.trial_dur:
                     step_start = time.time()
 
                     sensory_feedback = env.get_obs()
@@ -187,19 +189,19 @@ class EvolutionaryLearner:
             sorted_indices = np.argsort(fitnesses)[::-1]
             self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // 2]]
 
+            if np.max(fitnesses) > best_fitness:
+                best_params = self.population[0]    
+
             # Mutate top performers to create offspring
             new_population = []
             for params in self.population:
-                for _ in range(2):  # Each parent creates 2 offspring
+                for _ in range(2):
                     child = params + np.random.randn(len(params)) * self.mutation_rate
                     new_population.append(child)
 
             self.population = new_population[:self.num_individuals]
 
-            self.render(self.population[0], num_trials=3)
-
-            if np.max(fitnesses) > best_fitness:
-                best_params = self.population[0]    
+            self.render(best_params, num_trials=3)
 
         return best_params  # Return best evolved parameters
 
