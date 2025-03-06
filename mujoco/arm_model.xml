@@ -110,10 +110,10 @@
     <actuatorvel name="latissimus_velocity" actuator="latissimus"/>
     <actuatorvel name="biceps_velocity" actuator="biceps"/>
     <actuatorvel name="triceps_velocity" actuator="triceps"/>
-    <actuatorfrc name="deltoid_force" actuator="deltoid"/>
+    <!-- <actuatorfrc name="deltoid_force" actuator="deltoid"/>
     <actuatorfrc name="latissimus_force" actuator="latissimus"/>
     <actuatorfrc name="biceps_force" actuator="biceps"/>
-    <actuatorfrc name="triceps_force" actuator="triceps"/>
+    <actuatorfrc name="triceps_force" actuator="triceps"/> -->
   </sensor>
 
 </mujoco>

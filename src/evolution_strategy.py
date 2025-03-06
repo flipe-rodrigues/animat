@@ -60,6 +60,7 @@ class RNN:
     def init_state(self):
         """Reset hidden state between episodes"""
         self.h = np.zeros(self.hidden_size) + .5
+        np.random.seed(0)  # Fix the seed for reproducibility
 
     def get_params(self):
         """Convert RNN weight matrices into flat parameters"""
@@ -122,7 +123,6 @@ class MuJoCoPlant:
         """Reset limb state"""
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
-        return self.get_obs()
 
     def step(self, muscle_activations):
         """Apply torques and step simulation"""
@@ -140,7 +140,7 @@ class MuJoCoPlant:
         return self.data.geom_xpos[geom_id][:].copy()
     
     def distance(self, pos1, pos2):
-        return np.linalg.norm(pos1 - pos2)
+        return np.sqrt(np.sum((pos1 - pos2) ** 2))
 
 #%%
 """
@@ -167,20 +167,17 @@ class EvolveSequentialReacher:
         """Evaluate fitness of a given RNN policy"""
         rnn.init_state()
         total_reward = 0
-                
+   
         for trial in range(self.num_targets):
             self.env.reset()
             target_pos = self.env.sample_target()
-            initial_distance = self.env.distance(self.env.get_pos('hand'), target_pos)
 
             while self.env.data.time < self.trial_dur:
                 sensory_feedback = self.env.get_obs()
                 muscle_activations = rnn.step(target_pos, sensory_feedback)
-                # total_activation = sum(muscle_activations)
                 self.env.step(muscle_activations)
                 distance = self.env.distance(self.env.get_pos('hand'), target_pos)
-                norm_distance = distance # / initial_distance
-                total_reward -= norm_distance # + total_activation
+                total_reward -= distance
 
         average_reward = total_reward / self.trial_dur / self.num_targets
 
@@ -188,13 +185,30 @@ class EvolveSequentialReacher:
 
     def render(self, rnn, num_trials):
         """Render a couple of trials for a set of RNN params"""
-
         rnn.init_state()
+        total_reward = 0
 
         for trial in range(min(num_trials, self.num_targets)):
             self.env.reset()
             target_pos = self.env.sample_target()
 
+            time_data = []
+            sensor_data = {
+                "deltoid_length": [],
+                "latissimus_length": [],
+                "biceps_length": [],
+                "triceps_length": [],
+                "deltoid_velocity": [],
+                "latissimus_velocity": [],
+                "biceps_velocity": [],
+                "triceps_velocity": [],
+                # "deltoid_force": [],
+                # "latissimus_force": [],
+                # "biceps_force": [],
+                # "triceps_force": [],
+            }
+            distance_data = []
+            
             with mujoco.viewer.launch_passive(self.env.model, self.env.data) as viewer:
                 viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
                 viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
@@ -207,10 +221,18 @@ class EvolveSequentialReacher:
                     step_start = time.time()
 
                     sensory_feedback = self.env.get_obs()
-                    muscle_activations = rnn.step(target_pos, sensory_feedback*0)
+                    muscle_activations = rnn.step(target_pos, sensory_feedback)
                     self.env.step(muscle_activations)
-                        
+                    
                     viewer.sync()
+
+                    time_data.append(self.env.data.time)
+                    for i, key in enumerate(sensor_data.keys()):
+                        sensor_data[key].append(sensory_feedback[i])
+
+                    distance = self.env.distance(self.env.get_pos('hand'), target_pos)
+                    total_reward -= distance
+                    distance_data.append(distance)
 
                     # Rudimentary time keeping, will drift relative to wall clock.
                     time_until_next_step = self.env.model.opt.timestep - (time.time() - step_start)
@@ -219,23 +241,63 @@ class EvolveSequentialReacher:
 
                 viewer.close()
 
+                # Plot data
+                fig, axes = plt.subplots(2, 2)
+
+                # deltoid
+                axes[0, 0].plot(time_data, sensor_data["deltoid_length"], label="Deltoid")
+                axes[0, 0].plot(time_data, sensor_data["latissimus_length"], label="Latissimus")
+                axes[0, 0].plot(time_data, sensor_data["biceps_length"], label="Biceps")
+                axes[0, 0].plot(time_data, sensor_data["triceps_length"], label="Triceps")
+                axes[0, 0].set_title("Length")
+                axes[0, 0].legend()
+
+                # latissimus
+                axes[0, 1].plot(time_data, sensor_data["deltoid_velocity"], label="Deltoid")
+                axes[0, 1].plot(time_data, sensor_data["latissimus_velocity"], label="Latissimus")
+                axes[0, 1].plot(time_data, sensor_data["biceps_velocity"], label="Biceps")
+                axes[0, 1].plot(time_data, sensor_data["triceps_velocity"], label="Triceps")
+                axes[0, 1].set_title("Velocity")
+                axes[0, 1].legend()
+
+                # Biceps
+                # axes[1, 0].plot(time_data, sensor_data["deltoid_force"], label="Deltoid")
+                # axes[1, 0].plot(time_data, sensor_data["latissimus_force"], label="Latissimus")
+                # axes[1, 0].plot(time_data, sensor_data["biceps_force"], label="Biceps")
+                # axes[1, 0].plot(time_data, sensor_data["triceps_force"], label="Triceps")
+                # axes[1, 0].set_title("Force")
+                # axes[1, 0].legend()
+
+                # Biceps
+                axes[1, 1].plot(time_data, distance_data)
+                axes[1, 1].set_title("Distance to target")
+
+                # Set axis labels
+                for ax in axes.flat:
+                    ax.set_xlabel("Steps")
+                    ax.set_ylabel("arb.")
+
+                plt.tight_layout()
+                plt.show()
+
     def evolve(self):
         """Run evolutionary learning process"""
-        best_params = []
+        best_rnn = []
         best_fitness = -np.inf
         for gen in range(self.num_generations):
             fitnesses = np.array([self.evaluate(individual) for individual in tqdm(self.population, desc="Evaluating")])
             best_idx = np.argmax(fitnesses)
             worst_idx = np.argmin(fitnesses)
 
-            print(f"Generation {gen+1}, Best Fitness: {fitnesses[best_idx]:.4f}, Worst Fitness: {fitnesses[worst_idx]:.4f}")
+            print(f"Generation {gen+1}, Best Fitness: {fitnesses[best_idx]:.2f}, Worst Fitness: {fitnesses[worst_idx]:.2f}")
 
             # Select top individuals
             sorted_indices = np.argsort(fitnesses)[::-1]
             self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // self.num_parents]]
 
             if np.max(fitnesses) > best_fitness:
-                best_rnn = self.population[0]   
+                best_fitness = np.max(fitnesses)
+                best_rnn = self.population[0]
 
             # Mutate top performers to create offspring
             for i in range(self.num_individuals // self.num_parents):
@@ -243,9 +305,9 @@ class EvolveSequentialReacher:
                 child = parent.mutate(self.mutation_rate)
                 self.population.append(child)
 
-            self.render(best_rnn, num_trials=3) 
+            self.render(best_rnn, num_trials=5) 
 
-        return best_params  # Return best evolved parameters
+        return best_rnn  # Return best evolved parameters
 
 #%%
 """
@@ -260,13 +322,16 @@ class EvolveSequentialReacher:
 if __name__ == "__main__":
     reacher = EvolveSequentialReacher(
         trial_dur=3, 
-        num_targets=25, 
+        num_targets=5, 
         num_individuals=50,
         num_parents = 2,
         num_generations=100, 
         mutation_rate=.1)
     
-    best_params = reacher.evolve()
+    best_rnn = reacher.evolve()
+
+#%%
+reacher.render(best_rnn,num_trials=3)
 
 #%%
 x = reacher.env.targets[:,0]
