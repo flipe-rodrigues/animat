@@ -50,9 +50,9 @@ class RNN:
     
     def mutate(self, rate):
         self.W_ctx += np.random.randn(self.hidden_size, self.context_size) * np.sqrt(1 / self.context_size) * rate 
-        self.W_fbk += np.random.randn(self.hidden_size, self.feedback_size) * np.sqrt(1 / self.context_size) * rate
-        self.W_rnn += np.random.randn(self.hidden_size, self.hidden_size) * np.sqrt(1 / self.context_size) * rate
-        self.W_out += np.random.randn(self.output_size, self.hidden_size) * np.sqrt(1 / self.context_size) * rate
+        self.W_fbk += np.random.randn(self.hidden_size, self.feedback_size) * np.sqrt(1 / self.feedback_size) * rate
+        self.W_rnn += np.random.randn(self.hidden_size, self.hidden_size) * np.sqrt(1 / self.hidden_size) * rate
+        self.W_out += np.random.randn(self.output_size, self.hidden_size) * np.sqrt(1 / self.hidden_size) * rate
         self.b_rnn += np.random.randn(self.hidden_size) * rate
         self.b_out += np.random.randn(self.output_size) * rate
         return self
