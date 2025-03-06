@@ -11,6 +11,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import copy
 import time
 import mujoco
 import mujoco.viewer
@@ -39,36 +40,53 @@ class RNN:
     def init_weights(self):
         self.W_ctx = np.random.randn(self.hidden_size, self.context_size) * np.sqrt(1 / self.context_size)
         self.W_fbk = np.random.randn(self.hidden_size, self.feedback_size) * np.sqrt(1 / self.feedback_size)
-        self.W_rnn = np.random.randn(self.hidden_size, self.hidden_size) * np.sqrt(1 / self.hidden_size)
+        self.W_h = np.random.randn(self.hidden_size, self.hidden_size) * np.sqrt(1 / self.hidden_size)
         self.W_out = np.random.randn(self.output_size, self.hidden_size) * np.sqrt(1 / self.hidden_size)
     
     def init_biases(self):
         self.b_ctx = np.zeros(self.context_size)
         self.b_fbk = np.zeros(self.feedback_size)
-        self.b_rnn = np.zeros(self.hidden_size)
+        self.b_h = np.zeros(self.hidden_size)
         self.b_out = np.zeros(self.output_size)
     
+    def recombine(p1, p2):
+        child = RNN(p1.context_size, p1.feedback_size, p1.hidden_size, p1.output_size)
+        child.W_ctx = RNN.recombine_matrices(p1.W_ctx, p2.W_ctx)
+        child.W_fbk = RNN.recombine_matrices(p1.W_fbk, p2.W_fbk)
+        child.W_h = RNN.recombine_matrices(p1.W_h, p2.W_h)
+        child.W_out = RNN.recombine_matrices(p1.W_out, p2.W_out)
+        child.b_ctx = RNN.recombine_matrices(p1.b_ctx, p2.b_ctx)
+        child.b_fbk = RNN.recombine_matrices(p1.b_fbk, p2.b_fbk)
+        child.b_h = RNN.recombine_matrices(p1.b_h, p2.b_h)
+        child.b_out = RNN.recombine_matrices(p1.b_out, p2.b_out)
+        return child
+
+    def recombine_matrices(A, B):
+        mask = np.random.rand(*A.shape) > 0.5
+        return np.where(mask, A, B)
+
     def mutate(self, rate):
-        self.W_ctx += np.random.randn(self.hidden_size, self.context_size) * np.sqrt(1 / self.context_size) * rate 
-        self.W_fbk += np.random.randn(self.hidden_size, self.feedback_size) * np.sqrt(1 / self.feedback_size) * rate
-        self.W_rnn += np.random.randn(self.hidden_size, self.hidden_size) * np.sqrt(1 / self.hidden_size) * rate
-        self.W_out += np.random.randn(self.output_size, self.hidden_size) * np.sqrt(1 / self.hidden_size) * rate
-        self.b_rnn += np.random.randn(self.hidden_size) * rate
-        self.b_out += np.random.randn(self.output_size) * rate
-        return self
+        mutant = copy.deepcopy(self)
+        mutant.W_ctx += np.random.randn(mutant.hidden_size, mutant.context_size) * np.sqrt(1 / mutant.context_size) * rate 
+        mutant.W_fbk += np.random.randn(mutant.hidden_size, mutant.feedback_size) * np.sqrt(1 / mutant.feedback_size) * rate
+        mutant.W_h += np.random.randn(mutant.hidden_size, mutant.hidden_size) * np.sqrt(1 / mutant.hidden_size) * rate
+        mutant.W_out += np.random.randn(mutant.output_size, mutant.hidden_size) * np.sqrt(1 / mutant.hidden_size) * rate
+        mutant.b_h += np.random.randn(mutant.hidden_size) * rate
+        mutant.b_out += np.random.randn(mutant.output_size) * rate
+        return mutant
 
     def init_state(self):
         """Reset hidden state between episodes"""
-        self.h = np.zeros(self.hidden_size) + .5
-        np.random.seed(0)  # Fix the seed for reproducibility
+        self.h = np.zeros(self.hidden_size) + .0
+        np.random.seed(123)  # Fix the seed for reproducibility
 
     def get_params(self):
         """Convert RNN weight matrices into flat parameters"""
-        return np.concatenate([self.W_ctx.flatten(), self.W_fbk.flatten(), self.W_rnn.flatten(), self.W_out.flatten()])
+        return np.concatenate([self.W_ctx.flatten(), self.W_fbk.flatten(), self.W_h.flatten(), self.W_out.flatten()])
 
-    def step(self, context, feedback):
+    def step(self, ctx, fbk):
         """Compute one RNN step"""
-        self.h = self.logistic(self.W_ctx @ context + self.W_fbk @ feedback + self.W_rnn @ self.h + self.b_rnn)
+        self.h = self.tanh(self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h)
         output = self.logistic(self.W_out @ self.h + self.b_out)
         return output
 
@@ -161,7 +179,7 @@ class EvolveSequentialReacher:
         self.num_generations = num_generations
         self.mutation_rate = mutation_rate
         self.env = MuJoCoPlant()
-        self.population = [RNN(3, self.env.num_sensors, 25, self.env.num_actuators) for _ in range(num_individuals)]
+        self.population = [RNN(3, self.env.num_sensors, 100, self.env.num_actuators) for _ in range(num_individuals)]
 
     def evaluate(self, rnn):
         """Evaluate fitness of a given RNN policy"""
@@ -212,7 +230,7 @@ class EvolveSequentialReacher:
             with mujoco.viewer.launch_passive(self.env.model, self.env.data) as viewer:
                 viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
                 viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-                viewer.cam.lookat[:] = [0, 0, -.5]
+                viewer.cam.lookat[:] = [0, -1.5, -.5]
                 viewer.cam.azimuth = 90
                 viewer.cam.elevation = 0
                 viewer.sync()
@@ -271,6 +289,7 @@ class EvolveSequentialReacher:
                 # Biceps
                 axes[1, 1].plot(time_data, distance_data)
                 axes[1, 1].set_title("Distance to target")
+                axes[1, 1].set_ylim([0, 1])
 
                 # Set axis labels
                 for ax in axes.flat:
@@ -284,25 +303,30 @@ class EvolveSequentialReacher:
         """Run evolutionary learning process"""
         best_rnn = []
         best_fitness = -np.inf
-        for gen in range(self.num_generations):
+        for gg in range(self.num_generations):
             fitnesses = np.array([self.evaluate(individual) for individual in tqdm(self.population, desc="Evaluating")])
             best_idx = np.argmax(fitnesses)
             worst_idx = np.argmin(fitnesses)
 
-            print(f"Generation {gen+1}, Best Fitness: {fitnesses[best_idx]:.2f}, Worst Fitness: {fitnesses[worst_idx]:.2f}")
+            if fitnesses[best_idx] > best_fitness:
+                best_fitness = fitnesses[best_idx]
+                best_rnn = self.population[best_idx]
+
+            print(f"Generation {gg+1}, Best Fitness: {fitnesses[best_idx]:.2f}, Worst Fitness: {fitnesses[worst_idx]:.2f}")
 
             # Select top individuals
             sorted_indices = np.argsort(fitnesses)[::-1]
             self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // self.num_parents]]
 
-            if np.max(fitnesses) > best_fitness:
-                best_fitness = np.max(fitnesses)
-                best_rnn = self.population[0]
-
             # Mutate top performers to create offspring
-            for i in range(self.num_individuals // self.num_parents):
-                parent = self.population[i]
-                child = parent.mutate(self.mutation_rate)
+            for ii in range(len(self.population)):
+                if np.random.rand() >= .5:
+                    parent1 = np.random.choice(self.population)
+                    parent2 = np.random.choice(self.population)
+                    child = RNN.recombine(parent1, parent2).mutate(self.mutation_rate)
+                else:
+                    parent = self.population[ii]
+                    child = parent.mutate(self.mutation_rate)
                 self.population.append(child)
 
             self.render(best_rnn, num_trials=5) 
