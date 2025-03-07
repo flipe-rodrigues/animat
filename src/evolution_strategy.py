@@ -77,8 +77,7 @@ class RNN:
 
     def init_state(self):
         """Reset hidden state between episodes"""
-        self.h = np.zeros(self.hidden_size) + .0
-        np.random.seed(123)  # Fix the seed for reproducibility
+        self.h = np.zeros(self.hidden_size) + .5
 
     def get_params(self):
         """Convert RNN weight matrices into flat parameters"""
@@ -86,7 +85,7 @@ class RNN:
 
     def step(self, ctx, fbk):
         """Compute one RNN step"""
-        self.h = self.tanh(self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h)
+        self.h = self.logistic(self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h)
         output = self.logistic(self.W_out @ self.h + self.b_out)
         return output
 
@@ -150,6 +149,8 @@ class MuJoCoPlant:
     def get_obs(self):
         """Return joint angles, velocities, and end-effector position"""
         sensor_data = self.data.sensordata
+        k = 100  # Adjust the value of k as needed
+        sensor_data[self.num_sensors//3*2:] /= k  # Assuming force sensors are in the last third
         return sensor_data
     
     def get_pos(self, geom_name):
@@ -171,21 +172,22 @@ class MuJoCoPlant:
 .########....###.....#######..########..#######.....##....####..#######..##....##
 """
 class EvolveSequentialReacher:
-    def __init__(self, trial_dur, num_targets, num_individuals, num_parents, num_generations, mutation_rate):
+    def __init__(self, trial_dur, num_targets, num_individuals, num_generations, mutation_rate):
         self.trial_dur = trial_dur
         self.num_targets = num_targets
         self.num_individuals = num_individuals
-        self.num_parents = num_parents
         self.num_generations = num_generations
         self.mutation_rate = mutation_rate
         self.env = MuJoCoPlant()
         self.population = [RNN(3, self.env.num_sensors, 100, self.env.num_actuators) for _ in range(num_individuals)]
 
-    def evaluate(self, rnn):
+    def evaluate(self, rnn, gen_idx):
         """Evaluate fitness of a given RNN policy"""
         rnn.init_state()
         total_reward = 0
    
+        np.random.seed(gen_idx)
+
         for trial in range(self.num_targets):
             self.env.reset()
             target_pos = self.env.sample_target()
@@ -220,10 +222,10 @@ class EvolveSequentialReacher:
                 "latissimus_velocity": [],
                 "biceps_velocity": [],
                 "triceps_velocity": [],
-                # "deltoid_force": [],
-                # "latissimus_force": [],
-                # "biceps_force": [],
-                # "triceps_force": [],
+                "deltoid_force": [],
+                "latissimus_force": [],
+                "biceps_force": [],
+                "triceps_force": [],
             }
             distance_data = []
             
@@ -279,12 +281,12 @@ class EvolveSequentialReacher:
                 axes[0, 1].legend()
 
                 # Biceps
-                # axes[1, 0].plot(time_data, sensor_data["deltoid_force"], label="Deltoid")
-                # axes[1, 0].plot(time_data, sensor_data["latissimus_force"], label="Latissimus")
-                # axes[1, 0].plot(time_data, sensor_data["biceps_force"], label="Biceps")
-                # axes[1, 0].plot(time_data, sensor_data["triceps_force"], label="Triceps")
-                # axes[1, 0].set_title("Force")
-                # axes[1, 0].legend()
+                axes[1, 0].plot(time_data, sensor_data["deltoid_force"], label="Deltoid")
+                axes[1, 0].plot(time_data, sensor_data["latissimus_force"], label="Latissimus")
+                axes[1, 0].plot(time_data, sensor_data["biceps_force"], label="Biceps")
+                axes[1, 0].plot(time_data, sensor_data["triceps_force"], label="Triceps")
+                axes[1, 0].set_title("Force")
+                axes[1, 0].legend()
 
                 # Biceps
                 axes[1, 1].plot(time_data, distance_data)
@@ -304,7 +306,7 @@ class EvolveSequentialReacher:
         best_rnn = []
         best_fitness = -np.inf
         for gg in range(self.num_generations):
-            fitnesses = np.array([self.evaluate(individual) for individual in tqdm(self.population, desc="Evaluating")])
+            fitnesses = np.array([self.evaluate(individual, gg) for individual in tqdm(self.population, desc="Evaluating")])
             best_idx = np.argmax(fitnesses)
             worst_idx = np.argmin(fitnesses)
 
@@ -316,7 +318,7 @@ class EvolveSequentialReacher:
 
             # Select top individuals
             sorted_indices = np.argsort(fitnesses)[::-1]
-            self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // self.num_parents]]
+            self.population = [self.population[i] for i in sorted_indices[:self.num_individuals // 2]]
 
             # Mutate top performers to create offspring
             for ii in range(len(self.population)):
@@ -329,9 +331,9 @@ class EvolveSequentialReacher:
                     child = parent.mutate(self.mutation_rate)
                 self.population.append(child)
 
-            self.render(best_rnn, num_trials=5) 
+            # self.render(best_rnn, num_trials=10) 
 
-        return best_rnn  # Return best evolved parameters
+        return best_rnn
 
 #%%
 """
@@ -346,11 +348,10 @@ class EvolveSequentialReacher:
 if __name__ == "__main__":
     reacher = EvolveSequentialReacher(
         trial_dur=3, 
-        num_targets=5, 
-        num_individuals=50,
-        num_parents = 2,
-        num_generations=100, 
-        mutation_rate=.1)
+        num_targets=10, 
+        num_individuals=100,
+        num_generations=300, 
+        mutation_rate=.15)
     
     best_rnn = reacher.evolve()
 
