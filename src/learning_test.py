@@ -94,7 +94,7 @@ class ArmEnv(gym.Env):
         super(ArmEnv, self).__init__()
 
         # Load MuJoCo model
-        self.model = mujoco.MjModel.from_xml_path("../mujuco/arm_model.xml")
+        self.model = mujoco.MjModel.from_xml_path("mujoco/arm_model.xml")
         self.data = mujoco.MjData(self.model)
 
         # Define state space (target position + sensor data)
@@ -129,7 +129,7 @@ class ArmEnv(gym.Env):
         ])
 
         # Get hand position (end-effector)
-        hand_pos = self.data.geom_xpos[self.model.geom_name2id("hand")][:2]  # Only x, y
+        hand_pos = self.data.geom_xpos[self.model.geom_dataid("hand")][:2]  # Only x, y
 
         # Compute reward (negative distance to target)
         reward = -np.linalg.norm(hand_pos - self.target)
