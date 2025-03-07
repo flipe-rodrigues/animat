@@ -13,9 +13,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import copy
 import time
+import pickle
 import mujoco
 import mujoco.viewer
 from tqdm import tqdm
+import os
 
 #%%
 """
@@ -85,7 +87,7 @@ class RNN:
 
     def step(self, ctx, fbk):
         """Compute one RNN step"""
-        self.h = self.logistic(self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h)
+        self.h = self.tanh(self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h)
         output = self.logistic(self.W_out @ self.h + self.b_out)
         return output
 
@@ -186,18 +188,20 @@ class EvolveSequentialReacher:
         rnn.init_state()
         total_reward = 0
    
-        np.random.seed(gen_idx)
+        np.random.seed(gen_idx % 5)
 
         for trial in range(self.num_targets):
             self.env.reset()
             target_pos = self.env.sample_target()
+            initial_distance = self.env.distance(self.env.get_pos('hand'), target_pos)
 
             while self.env.data.time < self.trial_dur:
                 sensory_feedback = self.env.get_obs()
                 muscle_activations = rnn.step(target_pos, sensory_feedback)
                 self.env.step(muscle_activations)
                 distance = self.env.distance(self.env.get_pos('hand'), target_pos)
-                total_reward -= distance
+                norm_distance = distance / initial_distance
+                total_reward -= norm_distance
 
         average_reward = total_reward / self.trial_dur / self.num_targets
 
@@ -207,35 +211,39 @@ class EvolveSequentialReacher:
         """Render a couple of trials for a set of RNN params"""
         rnn.init_state()
         total_reward = 0
+        
+        self.env.reset()
+        
+        with mujoco.viewer.launch_passive(self.env.model, self.env.data) as viewer:
+            viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
+            viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
+            viewer.cam.lookat[:] = [0, -.5, -.5]
+            viewer.cam.azimuth = 90
+            viewer.cam.elevation = 0
+            viewer.sync()
 
-        for trial in range(min(num_trials, self.num_targets)):
-            self.env.reset()
-            target_pos = self.env.sample_target()
+            for trial in range(min(num_trials, self.num_targets)):                
+                # mujoco.mj_forward(self.env.model, self.env.data)
+                self.env.reset()
+                target_pos = self.env.sample_target()
+                initial_distance = self.env.distance(self.env.get_pos('hand'), target_pos)
 
-            time_data = []
-            sensor_data = {
-                "deltoid_length": [],
-                "latissimus_length": [],
-                "biceps_length": [],
-                "triceps_length": [],
-                "deltoid_velocity": [],
-                "latissimus_velocity": [],
-                "biceps_velocity": [],
-                "triceps_velocity": [],
-                "deltoid_force": [],
-                "latissimus_force": [],
-                "biceps_force": [],
-                "triceps_force": [],
-            }
-            distance_data = []
-            
-            with mujoco.viewer.launch_passive(self.env.model, self.env.data) as viewer:
-                viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
-                viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-                viewer.cam.lookat[:] = [0, -1.5, -.5]
-                viewer.cam.azimuth = 90
-                viewer.cam.elevation = 0
-                viewer.sync()
+                time_data = []
+                sensor_data = {
+                    "deltoid_length": [],
+                    "latissimus_length": [],
+                    "biceps_length": [],
+                    "triceps_length": [],
+                    "deltoid_velocity": [],
+                    "latissimus_velocity": [],
+                    "biceps_velocity": [],
+                    "triceps_velocity": [],
+                    "deltoid_force": [],
+                    "latissimus_force": [],
+                    "biceps_force": [],
+                    "triceps_force": [],
+                }
+                distance_data = []
 
                 while viewer.is_running() and self.env.data.time < self.trial_dur:
                     step_start = time.time()
@@ -251,15 +259,14 @@ class EvolveSequentialReacher:
                         sensor_data[key].append(sensory_feedback[i])
 
                     distance = self.env.distance(self.env.get_pos('hand'), target_pos)
-                    total_reward -= distance
-                    distance_data.append(distance)
+                    norm_distance = distance / initial_distance
+                    total_reward -= norm_distance
+                    distance_data.append(norm_distance)
 
                     # Rudimentary time keeping, will drift relative to wall clock.
                     time_until_next_step = self.env.model.opt.timestep - (time.time() - step_start)
                     if time_until_next_step > 0:
                         time.sleep(time_until_next_step)
-
-                viewer.close()
 
                 # Plot data
                 fig, axes = plt.subplots(2, 2)
@@ -300,6 +307,8 @@ class EvolveSequentialReacher:
 
                 plt.tight_layout()
                 plt.show()
+            
+            viewer.close()
 
     def evolve(self):
         """Run evolutionary learning process"""
@@ -331,7 +340,10 @@ class EvolveSequentialReacher:
                     child = parent.mutate(self.mutation_rate)
                 self.population.append(child)
 
-            # self.render(best_rnn, num_trials=10) 
+            if gg % 100 == 0:
+                self.render(best_rnn, num_trials=10)
+                with open(f"../models/best_rnn_gen_{gg}.pkl", "wb") as f:
+                    pickle.dump(best_rnn, f)
 
         return best_rnn
 
@@ -350,13 +362,30 @@ if __name__ == "__main__":
         trial_dur=3, 
         num_targets=10, 
         num_individuals=100,
-        num_generations=300, 
-        mutation_rate=.15)
+        num_generations=1000, 
+        mutation_rate=.05)
     
     best_rnn = reacher.evolve()
 
-#%%
-reacher.render(best_rnn,num_trials=3)
+#%% 
+"""
+.########..########.##....##.########..########.########.
+.##.....##.##.......###...##.##.....##.##.......##.....##
+.##.....##.##.......####..##.##.....##.##.......##.....##
+.########..######...##.##.##.##.....##.######...########.
+.##...##...##.......##..####.##.....##.##.......##...##..
+.##....##..##.......##...###.##.....##.##.......##....##.
+.##.....##.########.##....##.########..########.##.....##
+"""
+models_dir = "../models"
+model_files = [f for f in os.listdir(models_dir) if f.startswith("best_rnn_gen_") and f.endswith(".pkl")]
+latest_model_file = max(model_files, key=lambda f: int(f.split('_')[-1].split('.')[0]))
+
+with open(os.path.join(models_dir, latest_model_file), "rb") as f:
+    best_rnn = pickle.load(f)
+reacher.render(best_rnn,num_trials=10)
+
+# %%
 
 #%%
 x = reacher.env.targets[:,0]
