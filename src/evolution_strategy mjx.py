@@ -9,6 +9,7 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 import os
+import jax
 import copy
 import time
 import pickle
@@ -19,6 +20,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy.stats import beta
+from mujoco import mjx
 
 # %%
 """
@@ -211,6 +213,10 @@ class MuJoCoPlant:
         """Initialize Mujoco simulation"""
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
+
+        self.mxj_model = mjx.put_model(self.model)
+        self.mjx_data = mjx.put_data(self.model, self.data)
+
         self.num_sensors = self.model.nsensor
         self.num_actuators = self.model.nu
         self.parse_targets()
@@ -325,8 +331,19 @@ class EvolveSequentialReacher:
         trial_duration = target_duration
         total_reward = 0
 
+        mj_model = self.env.model
+        mj_data = self.env.data
+        mjx_model = self.env.mxj_model
+
+        jit_step = jax.jit(mjx.step)
+        mujoco.mj_resetData(mj_model, mj_data)
+        mjx_data = mjx.put_data(mj_model, mj_data)
+        
         target_idx = 0
         while target_idx < self.num_targets:
+            mjx_data = jit_step(mjx_model, mjx_data)
+            mj_data = mjx.get_data(mj_model, mjx_data)
+
             sensory_feedback = self.env.get_obs()
             muscle_activations = rnn.step(target_position, sensory_feedback)
             self.env.step(muscle_activations)
@@ -570,7 +587,7 @@ if __name__ == "__main__":
         activation=tanh,
         tau=25e-3,
     )
-    # best_rnn = reacher.evolve()
+    best_rnn = reacher.evolve()
 
 # %%
 """

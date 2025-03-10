@@ -122,10 +122,6 @@ class RNN:
         self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
 
     def init_biases(self):
-        # self.b_ctx = xavier_init(n_in=self.context_size, n_out=self.hidden_size)
-        # self.b_fbk = xavier_init(n_in=self.feedback_size, n_out=self.hidden_size)
-        # self.b_h = xavier_init(n_in=self.hidden_size, n_out=self.hidden_size)
-        # self.b_out = xavier_init(n_in=self.hidden_size, n_out=self.output_size)
         self.b_ctx = np.zeros(self.context_size)
         self.b_fbk = np.zeros(self.feedback_size)
         self.b_h = np.zeros(self.hidden_size)
@@ -154,30 +150,41 @@ class RNN:
         self.out = out
         return out
 
-    @staticmethod
-    def recombine(p1, p2):
-        child = RNN(
-            p1.context_size,
-            p1.feedback_size,
-            p1.hidden_size,
-            p1.output_size,
-            p1.phi,
-            p1.alpha,
+    def flatten(self):
+        return np.concatenate(
+            [
+                self.W_ctx.flatten(),
+                self.W_fbk.flatten(),
+                self.W_h.flatten(),
+                self.W_out.flatten(),
+                self.b_ctx.flatten(),
+                self.b_fbk.flatten(),
+                self.b_h.flatten(),
+                self.b_out.flatten(),
+            ]
         )
-        child.W_ctx = RNN.recombine_matrices(p1.W_ctx, p2.W_ctx)
-        child.W_fbk = RNN.recombine_matrices(p1.W_fbk, p2.W_fbk)
-        child.W_h = RNN.recombine_matrices(p1.W_h, p2.W_h)
-        child.W_out = RNN.recombine_matrices(p1.W_out, p2.W_out)
-        child.b_ctx = RNN.recombine_matrices(p1.b_ctx, p2.b_ctx)
-        child.b_fbk = RNN.recombine_matrices(p1.b_fbk, p2.b_fbk)
-        child.b_h = RNN.recombine_matrices(p1.b_h, p2.b_h)
-        child.b_out = RNN.recombine_matrices(p1.b_out, p2.b_out)
-        return child
 
-    @staticmethod
-    def recombine_matrices(A, B):
-        mask = np.random.rand(*A.shape) > 0.5
-        return np.where(mask, A, B)
+    def unflatten(self, flat_params):
+        """Return a new RNN with weights and biases from flattened parameters."""
+        idx = 0
+
+        def extract(shape):
+            nonlocal idx
+            size = np.prod(shape)
+            params = flat_params[idx : idx + size].reshape(shape)
+            idx += size
+            return params
+
+        new_rnn = copy.deepcopy(self)
+        new_rnn.W_ctx = extract((self.hidden_size, self.context_size))
+        new_rnn.W_fbk = extract((self.hidden_size, self.feedback_size))
+        new_rnn.W_h = extract((self.hidden_size, self.hidden_size))
+        new_rnn.W_out = extract((self.output_size, self.hidden_size))
+        new_rnn.b_ctx = extract((self.context_size,))
+        new_rnn.b_fbk = extract((self.feedback_size,))
+        new_rnn.b_h = extract((self.hidden_size,))
+        new_rnn.b_out = extract((self.output_size,))
+        return new_rnn
 
     def mutate(self, rate):
         mutant = copy.deepcopy(self)
@@ -282,29 +289,30 @@ class EvolveSequentialReacher:
         self,
         target_duration,
         num_targets,
-        num_individuals,
         num_generations,
         mutation_rate,
+        learning_rate,
         activation,
-        tau,
+        time_constant,
     ):
         self.target_duration = target_duration
         self.num_targets = num_targets
-        self.num_individuals = num_individuals
         self.num_generations = num_generations
         self.mutation_rate = mutation_rate
+        self.learning_rate = learning_rate
         self.env = MuJoCoPlant()
-        self.population = [
-            RNN(
-                context_size=3,
-                feedback_size=self.env.num_sensors,
-                hidden_size=25,
-                output_size=self.env.num_actuators,
-                activation=activation,
-                alpha=self.env.model.opt.timestep / tau,
-            )
-            for _ in range(num_individuals)
-        ]
+
+        self.rnn = RNN(
+            context_size=3,
+            feedback_size=self.env.num_sensors,
+            hidden_size=25,
+            output_size=self.env.num_actuators,
+            activation=activation,
+            alpha=self.env.model.opt.timestep / time_constant,
+        )
+        self.parameters = self.rnn.flatten()
+        self.num_parameters = len(self.parameters)
+        self.num_perturbations = 4 + int(3 * np.log(self.num_parameters))
 
     def reward(self, target_position):
         return -self.env.distance(self.env.get_pos("hand"), target_position)
@@ -495,53 +503,41 @@ class EvolveSequentialReacher:
 
     def evolve(self):
         """Run evolutionary learning process"""
-        best_rnn = []
-        best_fitness = -np.inf
         for gg in range(self.num_generations):
+            perturbations = np.random.randn(self.num_perturbations, self.num_parameters)
+            population = np.array(
+                [
+                    self.rnn.unflatten(
+                        self.parameters + self.mutation_rate * perturbations[i]
+                    )
+                    for i in range(self.num_perturbations)
+                ]
+            )
             fitnesses = np.array(
                 [
                     self.evaluate(individual, seed=gg)
-                    for individual in tqdm(self.population, desc="Evaluating")
+                    for individual in tqdm(population, desc="Evaluating")
                 ]
             )
-            best_idx = np.argmax(fitnesses)
-            worst_idx = np.argmin(fitnesses)
+            fitnesses = fitnesses - fitnesses.min()
 
-            if fitnesses[best_idx] > best_fitness:
-                best_fitness = fitnesses[best_idx]
-                best_rnn = self.population[best_idx]
-
-            print(
-                f"Generation {gg+1}, Best: {fitnesses[best_idx]:.2f}, Worst: {fitnesses[worst_idx]:.2f}"
+            gradient = np.dot(fitnesses, perturbations) / (
+                self.num_perturbations * self.mutation_rate
             )
+            self.parameters = self.parameters + self.learning_rate * gradient
 
-            # Select top individuals
-            sorted_indices = np.argsort(fitnesses)[::-1]
-            self.population = [
-                self.population[i] for i in sorted_indices[: self.num_individuals // 2]
-            ]
+            print(f"Generation {gg+1}, Mean loss: {fitnesses.mean():.2f}")
 
-            # Mutate top performers to create offspring
-            for ii in range(len(self.population)):
-                if np.random.rand() >= 0.5:
-                    parent1 = np.random.choice(self.population)
-                    parent2 = np.random.choice(self.population)
-                    child = RNN.recombine(parent1, parent2)
-                else:
-                    parent = self.population[ii]
-                    child = parent.mutate(beta_from_mean(self.mutation_rate))
-                self.population.append(child)
-
-            if gg % 10 == 0:
-                self.render(best_rnn)
             if gg % 100 == 0:
-                file = f"../models/best_rnn_gen_{gg}.pkl"
+                self.render(self.rnn)
+            if gg % 100 == 0:
+                file = f"../models/best_rnn_gen_{gg}_ES.pkl"
             else:
-                file = f"../models/best_rnn_gen_curr.pkl"
+                file = f"../models/best_rnn_gen_curr_ES.pkl"
             with open(file, "wb") as f:
-                pickle.dump(best_rnn, f)
+                pickle.dump(self.rnn, f)
 
-        return best_rnn
+        return self.rnn.unflatten(self.parameters)
 
 
 # %%
@@ -559,18 +555,19 @@ class EvolveSequentialReacher:
 # activation functions??
 # plot input space..
 # target/trial durations..
+# ES??
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     reacher = EvolveSequentialReacher(
         target_duration=(3, 1, 9),
         num_targets=15,
-        num_individuals=100,
         num_generations=1000,
-        mutation_rate=0.1,
+        mutation_rate=0.01,
+        learning_rate=0.01,
         activation=tanh,
-        tau=25e-3,
+        time_constant=25e-3,
     )
-    # best_rnn = reacher.evolve()
+    best_rnn = reacher.evolve()
 
 # %%
 """
@@ -584,8 +581,8 @@ if __name__ == "__main__":
 """
 models_dir = "../models"
 gen_idx = 500  # Specify the generation index you want to plot
-model_file = f"best_rnn_gen_{gen_idx}.pkl"
-model_file = "best_rnn_gen_curr.pkl"
+model_file = f"best_rnn_gen_{gen_idx}_ES.pkl"
+model_file = "best_rnn_gen_curr_ES.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
 reacher.render(best_rnn)
