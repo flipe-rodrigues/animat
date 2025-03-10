@@ -526,7 +526,7 @@ class EvolveSequentialReacher:
             )
             self.parameters = self.parameters + self.learning_rate * gradient
 
-            print(f"Generation {gg+1}, Mean loss: {fitnesses.mean():.2f}")
+            print(f"Generation {gg+1}, Mean fitness: {fitnesses.mean():.2f}")
 
             if gg % 100 == 0:
                 self.render(self.rnn)
