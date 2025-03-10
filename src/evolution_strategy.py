@@ -85,6 +85,10 @@ def he_init(n_in, n_out):
     return np.random.randn(n_out, n_in) * stddev
 
 
+def euclidean_distance(pos1, pos2):
+    return np.sqrt(np.sum((pos1 - pos2) ** 2))
+
+
 # %%
 """
 .########..##....##.##....##
@@ -139,6 +143,18 @@ class RNN:
         self.out = np.zeros(self.output_size)
 
     def step(self, ctx, fbk):
+        """Compute one RNN step"""
+        h = (1 - self.alpha) * self.h + self.alpha * self.phi(
+            self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h
+        )
+        out = (1 - self.alpha) * self.out + self.alpha * logistic(
+            self.W_out @ self.h + self.b_out
+        )
+        self.h = h
+        self.out = out
+        return out
+
+    def step_test(self, ctx, fbk):
         """Compute one RNN step"""
         ctx = (1 - self.alpha) * self.ctx + self.alpha * self.phi(ctx + self.b_ctx)
         fbk = (1 - self.alpha) * self.fbk + self.alpha * self.phi(fbk + self.b_fbk)
@@ -261,9 +277,6 @@ class MuJoCoPlant:
         geom_id = self.model.geom(geom_name).id
         return self.data.geom_xpos[geom_id][:].copy()
 
-    def distance(self, pos1, pos2):
-        return np.sqrt(np.sum((pos1 - pos2) ** 2))
-
 
 # %%
 """
@@ -298,16 +311,13 @@ class EvolveSequentialReacher:
             RNN(
                 context_size=3,
                 feedback_size=self.env.num_sensors,
-                hidden_size=25,
+                hidden_size=10,
                 output_size=self.env.num_actuators,
                 activation=activation,
                 alpha=self.env.model.opt.timestep / tau,
             )
             for _ in range(num_individuals)
         ]
-
-    def reward(self, target_position):
-        return -self.env.distance(self.env.get_pos("hand"), target_position)
 
     def evaluate(self, rnn, seed=123):
         """Evaluate fitness of a given RNN policy"""
@@ -316,6 +326,7 @@ class EvolveSequentialReacher:
         rnn.init_state()
         self.env.reset()
         target_position = self.env.sample_target()
+        initial_distance = euclidean_distance(self.env.get_pos("hand"), target_position)
         target_onset_time = 0
         target_duration = truncated_exponential(
             mu=self.target_duration[0],
@@ -330,9 +341,14 @@ class EvolveSequentialReacher:
             sensory_feedback = self.env.get_obs()
             muscle_activations = rnn.step(target_position, sensory_feedback)
             self.env.step(muscle_activations)
-            total_reward += self.reward(target_position)
+            distance = euclidean_distance(self.env.get_pos("hand"), target_position)
+            reward = initial_distance - distance
+            total_reward += reward
             if self.env.data.time - target_onset_time >= target_duration:
                 target_position = self.env.sample_target()
+                initial_distance = euclidean_distance(
+                    self.env.get_pos("hand"), target_position
+                )
                 target_onset_time = self.env.data.time
                 target_duration = truncated_exponential(
                     mu=self.target_duration[0],
@@ -381,6 +397,9 @@ class EvolveSequentialReacher:
             rnn.init_state()
             self.env.reset()
             target_position = self.env.sample_target()
+            initial_distance = euclidean_distance(
+                self.env.get_pos("hand"), target_position
+            )
             target_onset_time = 0
             target_duration = truncated_exponential(
                 mu=self.target_duration[0],
@@ -389,7 +408,9 @@ class EvolveSequentialReacher:
             )
             trial_duration = target_duration
             total_reward = 0
-            distance_prev = self.env.distance(self.env.get_pos("hand"), target_position)
+            distance_prev = euclidean_distance(
+                self.env.get_pos("hand"), target_position
+            )
 
             target_idx = 0
             while viewer.is_running() and target_idx < self.num_targets:
@@ -398,15 +419,18 @@ class EvolveSequentialReacher:
                 sensory_feedback = self.env.get_obs()
                 muscle_activations = rnn.step(target_position, sensory_feedback)
                 self.env.step(muscle_activations)
-                distance = self.env.distance(self.env.get_pos("hand"), target_position)
+                distance = euclidean_distance(self.env.get_pos("hand"), target_position)
                 energy = np.mean(muscle_activations)
                 progress = (distance_prev - distance) / self.env.model.opt.timestep
-                reward = self.reward(target_position)
+                reward = initial_distance - distance
                 total_reward += reward
 
                 distance_prev = distance
                 if self.env.data.time - target_onset_time >= target_duration:
                     target_position = self.env.sample_target()
+                    initial_distance = euclidean_distance(
+                        self.env.get_pos("hand"), target_position
+                    )
                     target_onset_time = self.env.data.time
                     target_duration = truncated_exponential(
                         mu=self.target_duration[0],
@@ -415,7 +439,7 @@ class EvolveSequentialReacher:
                     )
                     trial_duration += target_duration
                     target_idx += 1
-                    distance_prev = self.env.distance(
+                    distance_prev = euclidean_distance(
                         self.env.get_pos("hand"), target_position
                     )
 
@@ -570,7 +594,7 @@ if __name__ == "__main__":
         activation=tanh,
         tau=25e-3,
     )
-    # best_rnn = reacher.evolve()
+    best_rnn = reacher.evolve()
 
 # %%
 """

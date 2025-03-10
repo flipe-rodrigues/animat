@@ -140,13 +140,11 @@ class RNN:
 
     def step(self, ctx, fbk):
         """Compute one RNN step"""
-        ctx = (1 - self.alpha) * self.ctx + self.alpha * self.phi(ctx + self.b_ctx)
-        fbk = (1 - self.alpha) * self.fbk + self.alpha * self.phi(fbk + self.b_fbk)
         h = (1 - self.alpha) * self.h + self.alpha * self.phi(
             self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h
         )
         out = (1 - self.alpha) * self.out + self.alpha * logistic(
-            self.W_out @ h + self.b_out
+            self.W_out @ self.h + self.b_out
         )
         self.ctx = ctx
         self.fbk = fbk
@@ -291,6 +289,7 @@ class EvolveSequentialReacher:
         target_duration,
         num_targets,
         num_generations,
+        num_hidden_units,
         mutation_rate,
         learning_rate,
         activation,
@@ -306,7 +305,7 @@ class EvolveSequentialReacher:
         self.rnn = RNN(
             context_size=3,
             feedback_size=self.env.num_sensors,
-            hidden_size=25,
+            hidden_size=num_hidden_units,
             output_size=self.env.num_actuators,
             activation=activation,
             alpha=self.env.model.opt.timestep / time_constant,
@@ -573,6 +572,7 @@ if __name__ == "__main__":
         target_duration=(3, 1, 6),
         num_targets=15,
         num_generations=1000,
+        num_hidden_units=10,
         mutation_rate=0.01,
         learning_rate=0.01,
         activation=tanh,
