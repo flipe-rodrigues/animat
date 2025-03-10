@@ -85,6 +85,10 @@ def he_init(n_in, n_out):
     return np.random.randn(n_out, n_in) * stddev
 
 
+def euclidean_distance(pos1, pos2):
+    return np.sqrt(np.sum((pos1 - pos2) ** 2))
+
+
 # %%
 """
 .########..##....##.##....##
@@ -268,9 +272,6 @@ class MuJoCoPlant:
         geom_id = self.model.geom(geom_name).id
         return self.data.geom_xpos[geom_id][:].copy()
 
-    def distance(self, pos1, pos2):
-        return np.sqrt(np.sum((pos1 - pos2) ** 2))
-
 
 # %%
 """
@@ -314,9 +315,6 @@ class EvolveSequentialReacher:
         self.num_parameters = len(self.parameters)
         self.num_perturbations = 4 + int(3 * np.log(self.num_parameters))
 
-    def reward(self, target_position):
-        return -self.env.distance(self.env.get_pos("hand"), target_position)
-
     def evaluate(self, rnn, seed=123):
         """Evaluate fitness of a given RNN policy"""
         np.random.seed(seed)
@@ -324,6 +322,7 @@ class EvolveSequentialReacher:
         rnn.init_state()
         self.env.reset()
         target_position = self.env.sample_target()
+        initial_distance = euclidean_distance(self.env.get_pos("hand"), target_position)
         target_onset_time = 0
         target_duration = truncated_exponential(
             mu=self.target_duration[0],
@@ -338,9 +337,14 @@ class EvolveSequentialReacher:
             sensory_feedback = self.env.get_obs()
             muscle_activations = rnn.step(target_position, sensory_feedback)
             self.env.step(muscle_activations)
-            total_reward += self.reward(target_position)
+            distance = euclidean_distance(self.env.get_pos("hand"), target_position)
+            reward = initial_distance - distance
+            total_reward += reward
             if self.env.data.time - target_onset_time >= target_duration:
                 target_position = self.env.sample_target()
+                initial_distance = euclidean_distance(
+                    self.env.get_pos("hand"), target_position
+                )
                 target_onset_time = self.env.data.time
                 target_duration = truncated_exponential(
                     mu=self.target_duration[0],
@@ -389,6 +393,9 @@ class EvolveSequentialReacher:
             rnn.init_state()
             self.env.reset()
             target_position = self.env.sample_target()
+            initial_distance = euclidean_distance(
+                self.env.get_pos("hand"), target_position
+            )
             target_onset_time = 0
             target_duration = truncated_exponential(
                 mu=self.target_duration[0],
@@ -397,7 +404,9 @@ class EvolveSequentialReacher:
             )
             trial_duration = target_duration
             total_reward = 0
-            distance_prev = self.env.distance(self.env.get_pos("hand"), target_position)
+            distance_prev = euclidean_distance(
+                self.env.get_pos("hand"), target_position
+            )
 
             target_idx = 0
             while viewer.is_running() and target_idx < self.num_targets:
@@ -406,15 +415,18 @@ class EvolveSequentialReacher:
                 sensory_feedback = self.env.get_obs()
                 muscle_activations = rnn.step(target_position, sensory_feedback)
                 self.env.step(muscle_activations)
-                distance = self.env.distance(self.env.get_pos("hand"), target_position)
+                distance = euclidean_distance(self.env.get_pos("hand"), target_position)
                 energy = np.mean(muscle_activations)
                 progress = (distance_prev - distance) / self.env.model.opt.timestep
-                reward = self.reward(target_position)
+                reward = initial_distance - distance
                 total_reward += reward
 
                 distance_prev = distance
                 if self.env.data.time - target_onset_time >= target_duration:
                     target_position = self.env.sample_target()
+                    initial_distance = euclidean_distance(
+                        self.env.get_pos("hand"), target_position
+                    )
                     target_onset_time = self.env.data.time
                     target_duration = truncated_exponential(
                         mu=self.target_duration[0],
@@ -423,7 +435,7 @@ class EvolveSequentialReacher:
                     )
                     trial_duration += target_duration
                     target_idx += 1
-                    distance_prev = self.env.distance(
+                    distance_prev = euclidean_distance(
                         self.env.get_pos("hand"), target_position
                     )
 
@@ -519,7 +531,6 @@ class EvolveSequentialReacher:
                     for individual in tqdm(population, desc="Evaluating")
                 ]
             )
-            fitnesses = fitnesses - fitnesses.min()
 
             gradient = np.dot(fitnesses, perturbations) / (
                 self.num_perturbations * self.mutation_rate
@@ -559,7 +570,7 @@ class EvolveSequentialReacher:
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     reacher = EvolveSequentialReacher(
-        target_duration=(3, 1, 9),
+        target_duration=(3, 1, 6),
         num_targets=15,
         num_generations=1000,
         mutation_rate=0.01,
@@ -580,9 +591,9 @@ if __name__ == "__main__":
 .##.....##.########.##....##.########..########.##.....##
 """
 models_dir = "../models"
-gen_idx = 500  # Specify the generation index you want to plot
+gen_idx = 400  # Specify the generation index you want to plot
 model_file = f"best_rnn_gen_{gen_idx}_ES.pkl"
-model_file = "best_rnn_gen_curr_ES.pkl"
+# model_file = "best_rnn_gen_curr_ES.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
 reacher.render(best_rnn)
