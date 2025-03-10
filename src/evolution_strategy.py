@@ -34,19 +34,17 @@ from scipy.stats import beta
 
 def exponential_kernel(tau, time):
     """Generates an exponential kernel parameterized by its mean"""
-    lambda_ = 1 / tau  # Convert mean to lambda
-    kernel = lambda_ * np.exp(-lambda_ * time)  # Exponential function
-    return kernel / kernel.sum()  # Normalize
+    lambda_ = 1 / tau
+    kernel = lambda_ * np.exp(-lambda_ * time)
+    return kernel / kernel.sum()
 
 
 def truncated_exponential(mu, a, b, size=1):
     """Sample from a truncated exponential distribution using inverse CDF method."""
     lambda_ = 1 / mu
     U = np.random.uniform(0, 1, size)
-    if size == 1:
-        U = U[0]
     exp_a, exp_b = np.exp(-lambda_ * a), np.exp(-lambda_ * b)
-    return -np.log((1 - U) * (exp_a - exp_b) + exp_b) / lambda_
+    return np.array(-np.log((1 - U) * (exp_a - exp_b) + exp_b) / lambda_)
 
 
 def sample_entropy(samples, base=2):
@@ -56,10 +54,10 @@ def sample_entropy(samples, base=2):
     return -np.sum(probs * np.log(probs) / np.log(base))
 
 
-def beta_from_mean(mu, nu=1, num_samples=1):
+def beta_from_mean(mu, nu=5, num_samples=1):
     alpha = mu * nu
-    beta_param = (1 - mu) * nu
-    return beta.rvs(alpha, beta_param, size=num_samples)
+    beta_ = (1 - mu) * nu
+    return beta.rvs(alpha, beta_, size=num_samples)
 
 
 def logistic(x):
@@ -126,10 +124,6 @@ class RNN:
         self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
 
     def init_biases(self):
-        # self.b_ctx = xavier_init(n_in=self.context_size, n_out=self.hidden_size)
-        # self.b_fbk = xavier_init(n_in=self.feedback_size, n_out=self.hidden_size)
-        # self.b_h = xavier_init(n_in=self.hidden_size, n_out=self.hidden_size)
-        # self.b_out = xavier_init(n_in=self.hidden_size, n_out=self.output_size)
         self.b_ctx = np.zeros(self.context_size)
         self.b_fbk = np.zeros(self.feedback_size)
         self.b_h = np.zeros(self.hidden_size)
@@ -153,6 +147,14 @@ class RNN:
         self.h = h
         self.out = out
         return out
+
+    def step_now(self, ctx, fbk):
+        """Compute one RNN step"""
+        self.h = tanh(
+            self.W_ctx @ ctx + self.W_fbk @ fbk + self.W_h @ self.h + self.b_h
+        )
+        output = logistic(self.W_out @ self.h + self.b_out)
+        return output
 
     def step_test(self, ctx, fbk):
         """Compute one RNN step"""
@@ -221,9 +223,7 @@ class RNN:
 
 
 class MuJoCoPlant:
-    def __init__(
-        self, model_path="../mujoco/arm_model.xml", targets_path="../src/targets.csv"
-    ):
+    def __init__(self, model_path="../mujoco/arm_model.xml"):
         """Initialize Mujoco simulation"""
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
@@ -239,7 +239,7 @@ class MuJoCoPlant:
         self.targets.append(H[1])
         self.targets.append(H[2])
 
-    def sample_target(self, num_samples=1):
+    def sample_targets(self, num_samples=1):
         idcs2d = self.targets[0]
         x_edges = self.targets[1]
         y_edges = self.targets[2]
@@ -248,10 +248,14 @@ class MuJoCoPlant:
         ]
         sampled_x = x_edges[sampled_idcs[:, 0]]
         sampled_y = y_edges[sampled_idcs[:, 1]]
-        target_pos = [sampled_x[0], 0, sampled_y[0]]
-        self.data.mocap_pos = target_pos
+        positions = np.zeros((num_samples, 3))
+        positions[:, 0] = sampled_x
+        positions[:, 2] = sampled_y
+        return positions
+
+    def update_target(self, position):
+        self.data.mocap_pos = position
         mujoco.mj_forward(self.model, self.data)
-        return target_pos
 
     def reset(self):
         """Reset limb state"""
@@ -319,44 +323,48 @@ class EvolveSequentialReacher:
             for _ in range(num_individuals)
         ]
 
-    def evaluate(self, rnn, seed=123):
+    def evaluate(self, rnn, seed=0):
         """Evaluate fitness of a given RNN policy"""
         np.random.seed(seed)
 
         rnn.init_state()
         self.env.reset()
-        target_position = self.env.sample_target()
-        initial_distance = euclidean_distance(self.env.get_pos("hand"), target_position)
-        target_onset_time = 0
-        target_duration = truncated_exponential(
+        target_positions = self.env.sample_targets(self.num_targets)
+        target_durations = truncated_exponential(
             mu=self.target_duration[0],
             a=self.target_duration[1],
             b=self.target_duration[2],
+            size=self.num_targets,
         )
-        trial_duration = target_duration
+        target_offset_times = target_durations.cumsum()
+        trial_duration = target_durations.sum()
         total_reward = 0
 
         target_idx = 0
+        self.env.update_target(target_positions[target_idx])
+        initial_distance = euclidean_distance(
+            self.env.get_pos("hand"), target_positions[target_idx]
+        )
+
         while target_idx < self.num_targets:
             sensory_feedback = self.env.get_obs()
-            muscle_activations = rnn.step(target_position, sensory_feedback)
+            muscle_activations = rnn.step(
+                target_positions[target_idx], sensory_feedback
+            )
             self.env.step(muscle_activations)
-            distance = euclidean_distance(self.env.get_pos("hand"), target_position)
+            distance = euclidean_distance(
+                self.env.get_pos("hand"), target_positions[target_idx]
+            )
             reward = initial_distance - distance
             total_reward += reward
-            if self.env.data.time - target_onset_time >= target_duration:
-                target_position = self.env.sample_target()
-                initial_distance = euclidean_distance(
-                    self.env.get_pos("hand"), target_position
-                )
-                target_onset_time = self.env.data.time
-                target_duration = truncated_exponential(
-                    mu=self.target_duration[0],
-                    a=self.target_duration[1],
-                    b=self.target_duration[2],
-                )
-                trial_duration += target_duration
+
+            if self.env.data.time > target_offset_times[target_idx]:
                 target_idx += 1
+                if target_idx < self.num_targets:
+                    self.env.update_target(target_positions[target_idx])
+                    initial_distance = euclidean_distance(
+                        self.env.get_pos("hand"), target_positions[target_idx]
+                    )
 
         average_reward = total_reward / trial_duration
         return average_reward
@@ -383,7 +391,7 @@ class EvolveSequentialReacher:
         target_data = []
         distance_data = []
         energy_data = []
-        progress_data = []
+        reward_data = []
         fitness_data = []
 
         with mujoco.viewer.launch_passive(self.env.model, self.env.data) as viewer:
@@ -396,64 +404,57 @@ class EvolveSequentialReacher:
 
             rnn.init_state()
             self.env.reset()
-            target_position = self.env.sample_target()
-            initial_distance = euclidean_distance(
-                self.env.get_pos("hand"), target_position
-            )
-            target_onset_time = 0
-            target_duration = truncated_exponential(
+            target_positions = self.env.sample_targets(self.num_targets)
+            target_durations = truncated_exponential(
                 mu=self.target_duration[0],
                 a=self.target_duration[1],
                 b=self.target_duration[2],
+                size=self.num_targets,
             )
-            trial_duration = target_duration
+            target_offset_times = target_durations.cumsum()
+            trial_duration = target_durations.sum()
             total_reward = 0
-            distance_prev = euclidean_distance(
-                self.env.get_pos("hand"), target_position
-            )
 
             target_idx = 0
+            self.env.update_target(target_positions[target_idx])
+            initial_distance = euclidean_distance(
+                self.env.get_pos("hand"), target_positions[target_idx]
+            )
+
             while viewer.is_running() and target_idx < self.num_targets:
                 step_start = time.time()
 
                 sensory_feedback = self.env.get_obs()
-                muscle_activations = rnn.step(target_position, sensory_feedback)
+                muscle_activations = rnn.step(
+                    target_positions[target_idx], sensory_feedback
+                )
                 self.env.step(muscle_activations)
-                distance = euclidean_distance(self.env.get_pos("hand"), target_position)
+                distance = euclidean_distance(
+                    self.env.get_pos("hand"), target_positions[target_idx]
+                )
                 energy = np.mean(muscle_activations)
-                progress = (distance_prev - distance) / self.env.model.opt.timestep
                 reward = initial_distance - distance
                 total_reward += reward
 
-                distance_prev = distance
-                if self.env.data.time - target_onset_time >= target_duration:
-                    target_position = self.env.sample_target()
-                    initial_distance = euclidean_distance(
-                        self.env.get_pos("hand"), target_position
-                    )
-                    target_onset_time = self.env.data.time
-                    target_duration = truncated_exponential(
-                        mu=self.target_duration[0],
-                        a=self.target_duration[1],
-                        b=self.target_duration[2],
-                    )
-                    trial_duration += target_duration
+                time_data.append(self.env.data.time)
+                distance_data.append(distance)
+                energy_data.append(energy)
+                reward_data.append(reward)
+                fitness_data.append(total_reward)
+                target_data.append(target_positions[target_idx])
+
+                if self.env.data.time > target_offset_times[target_idx]:
                     target_idx += 1
-                    distance_prev = euclidean_distance(
-                        self.env.get_pos("hand"), target_position
-                    )
+                    if target_idx < self.num_targets:
+                        self.env.update_target(target_positions[target_idx])
+                        initial_distance = euclidean_distance(
+                            self.env.get_pos("hand"), target_positions[target_idx]
+                        )
 
                 viewer.sync()
 
-                time_data.append(self.env.data.time)
                 for i, key in enumerate(sensor_data.keys()):
                     sensor_data[key].append(sensory_feedback[i])
-
-                distance_data.append(distance)
-                energy_data.append(energy)
-                progress_data.append(progress)
-                fitness_data.append(total_reward)
-                target_data.append(target_position)
 
                 # Rudimentary time keeping, will drift relative to wall clock.
                 time_until_next_step = self.env.model.opt.timestep - (
@@ -497,7 +498,7 @@ class EvolveSequentialReacher:
 
             # Fitness
             axes[1, 1].plot(time_data, distance_data, label="Distance")
-            axes[1, 1].plot(time_data, progress_data, label="Progress")
+            axes[1, 1].plot(time_data, reward_data, label="Reward")
             axes[1, 1].plot(time_data, energy_data, label="Energy")
             axes[1, 1].set_title("Fitness")
             axes[1, 1].set_ylim([-1.05, 1.05])
@@ -506,7 +507,7 @@ class EvolveSequentialReacher:
             # Create a twin axis (right y-axis)
             ax_right = axes[1, 1].twinx()
             ax_right.plot(time_data, fitness_data / trial_duration, color="r")
-            ax_right.set_ylabel("Cumulative", color="r")
+            ax_right.set_ylabel("Cumulative Reward", color="r")
             ax_right.tick_params(axis="y", labelcolor="r")
 
             # Set axis labels
@@ -586,13 +587,13 @@ class EvolveSequentialReacher:
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     reacher = EvolveSequentialReacher(
-        target_duration=(3, 1, 9),
+        target_duration=(3, 1, 6),
         num_targets=15,
         num_individuals=100,
         num_generations=1000,
-        mutation_rate=0.1,
+        mutation_rate=0.05,
         activation=tanh,
-        tau=25e-3,
+        tau=10e-3,
     )
     best_rnn = reacher.evolve()
 
@@ -613,3 +614,19 @@ model_file = "best_rnn_gen_curr.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
 reacher.render(best_rnn)
+
+# %%
+"""
+.########.########..######..########..######.
+....##....##.......##....##....##....##....##
+....##....##.......##..........##....##......
+....##....######....######.....##.....######.
+....##....##.............##....##..........##
+....##....##.......##....##....##....##....##
+....##....########..######.....##.....######.
+"""
+plt.figure()
+a = beta_from_mean(0.05, 5, 10000)
+print(a.mean())
+plt.hist(a, bins=30)
+plt.show()
