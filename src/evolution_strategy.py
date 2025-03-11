@@ -355,7 +355,7 @@ class EvolveSequentialReacher:
             distance = euclidean_distance(
                 self.env.get_pos("hand"), target_positions[target_idx]
             )
-            reward = initial_distance - distance
+            reward = -distance
             total_reward += reward
 
             if self.env.data.time > target_offset_times[target_idx]:
@@ -366,8 +366,7 @@ class EvolveSequentialReacher:
                         self.env.get_pos("hand"), target_positions[target_idx]
                     )
 
-        average_reward = total_reward / trial_duration
-        return average_reward
+        return total_reward / trial_duration
 
     def render(self, rnn, seed=0):
         """Render a couple of trials for a set of RNN params"""
@@ -433,7 +432,7 @@ class EvolveSequentialReacher:
                     self.env.get_pos("hand"), target_positions[target_idx]
                 )
                 energy = np.mean(muscle_activations)
-                reward = initial_distance - distance
+                reward = -distance
                 total_reward += reward
 
                 time_data.append(self.env.data.time)
@@ -587,7 +586,7 @@ class EvolveSequentialReacher:
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     reacher = EvolveSequentialReacher(
-        target_duration=(3, 1, 6),
+        target_duration=(4, 2, 6),
         num_targets=15,
         num_individuals=100,
         num_generations=1000,

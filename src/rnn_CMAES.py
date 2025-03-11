@@ -267,6 +267,56 @@ class MuJoCoPlant:
 
 # %%
 """
+..######..##.....##....###............########..######.
+.##....##.###...###...##.##...........##.......##....##
+.##.......####.####..##...##..........##.......##......
+.##.......##.###.##.##.....##.#######.######....######.
+.##.......##.....##.#########.........##.............##
+.##....##.##.....##.##.....##.........##.......##....##
+..######..##.....##.##.....##.........########..######.
+"""
+
+
+class CMAES:
+    def __init__(
+        self,
+        num_parameters,
+        lambda_,
+        mean0,
+        sigma0,
+    ):
+        self.num_parameters = num_parameters
+        self.num_perturbations = lambda_
+
+        self.mean = mean0
+        self.sigma = sigma0
+
+        self.C = np.eye(num_parameters)  # Covariance matrix
+        self.pc = np.zeros(num_parameters)  # Evolution path
+        self.ps = np.zeros(num_parameters)
+        self.weights = np.log(lambda_ + 0.5) - np.log(np.arange(1, lambda_ + 1))
+        self.weights /= self.weights.sum()
+        self.mu_eff = 1 / np.sum(self.weights**2)  # Effective number of parents
+        self.c1 = 2 / ((num_parameters + 1.3) ** 2 + self.mu_eff)
+        self.cmu = min(
+            1 - self.c1,
+            2
+            * (self.mu_eff - 2 + 1 / self.mu_eff)
+            / ((num_parameters + 2) ** 2 + self.mu_eff),
+        )
+        self.damps = (
+            1
+            + 2 * max(0, np.sqrt((self.mu_eff - 1) / (num_parameters + 1)) - 1)
+            + self.c1
+            + self.cmu
+        )
+        self.chiN = np.sqrt(num_parameters) * (
+            1 - 1 / (4 * num_parameters) + 1 / (21 * num_parameters**2)
+        )
+
+
+# %%
+"""
 .########.##.....##..#######..##.......##.....##.########.####..#######..##....##
 .##.......##.....##.##.....##.##.......##.....##....##.....##..##.....##.###...##
 .##.......##.....##.##.....##.##.......##.....##....##.....##..##.....##.####..##
@@ -313,6 +363,13 @@ class EvolveSequentialReacher:
         self.num_parameters = len(self.parameters)
         self.num_perturbations = 4 + int(3 * np.log(self.num_parameters))
 
+        self.cmaes = CMAES(
+            num_parameters=self.num_parameters,
+            lambda_=self.num_perturbations,
+            mean0=self.parameters,
+            sigma0=self.mutation_rate,
+        )
+
     def evaluate(self, rnn, seed=0):
         """Evaluate fitness of a given RNN policy"""
         np.random.seed(seed)
@@ -342,15 +399,20 @@ class EvolveSequentialReacher:
             distance = euclidean_distance(
                 self.env.get_pos("hand"), target_positions[target_idx]
             )
-            reward = -distance * self.env.model.opt.timestep
+            energy = muscle_activations.sum() * 0.1
+            reward = -(distance + energy) * self.env.model.opt.timestep
             total_reward += reward
 
             if self.env.data.time > target_offset_times[target_idx]:
                 target_idx += 1
+                if seed < 100:
+                    rnn.init_state()
+                    self.env.reset()
                 if target_idx < self.num_targets:
                     self.env.update_target(target_positions[target_idx])
 
-        return total_reward / trial_duration
+        average_reward = total_reward / trial_duration
+        return average_reward
 
     def render(self, rnn, seed=0):
         """Render a couple of trials for a set of RNN params"""
@@ -527,46 +589,76 @@ class EvolveSequentialReacher:
     def evolve(self):
         """Run evolutionary learning process"""
         for gg in range(self.num_generations):
-            perturbations = np.random.randn(self.num_perturbations, self.num_parameters)
-            population = np.array(
+
+            # Generate new population
+            Z = np.random.randn(self.cmaes.num_perturbations, self.cmaes.num_parameters)
+            X = (
+                self.cmaes.mean
+                + self.cmaes.sigma * Z @ np.linalg.cholesky(self.cmaes.C).T
+            )
+            fitness = np.array(
                 [
-                    self.rnn.unflatten(
-                        self.parameters + self.mutation_rate * perturbations[i]
-                    )
-                    for i in range(self.num_perturbations)
+                    self.evaluate(self.rnn.unflatten(x), seed=gg)
+                    for x in tqdm(X, desc="Evaluating")
                 ]
             )
-            fitnesses = np.array(
-                [
-                    self.evaluate(individual, seed=0)
-                    for individual in tqdm(population, desc="Evaluating")
-                ]
+
+            # Sort by fitness and update mean
+            sorted_idcs = np.argsort(fitness)[::-1]
+            X = X[sorted_idcs]
+            Z = Z[sorted_idcs]
+            self.cmaes.mean = np.sum(
+                self.cmaes.weights[:, np.newaxis] * X[: self.cmaes.num_perturbations],
+                axis=0,
             )
-            # fitnesses = (
-            #     fitnesses - fitnesses.min()
-            # )  # / (fitnesses.max() - fitnesses.min())
 
-            gradient = (
-                fitnesses
-                @ perturbations
-                / (self.num_perturbations * self.mutation_rate)
+            # Update evolution paths
+            z_mean = np.sum(
+                self.cmaes.weights[:, np.newaxis] * Z[: self.cmaes.num_perturbations],
+                axis=0,
             )
-            self.parameters = self.parameters + self.learning_rate * gradient
+            self.cmaes.ps = (1 - 0.5) * self.cmaes.ps + np.sqrt(
+                0.5 * (2 - 0.5)
+            ) * z_mean
+            hsig = (
+                np.linalg.norm(self.cmaes.ps) / np.sqrt(1 - (1 - 0.5) ** (2 * (gg + 1)))
+                < (1.4 + 2 / (self.cmaes.num_parameters + 1)) * self.cmaes.chiN
+            )
+            self.cmaes.pc = (1 - self.cmaes.c1) * self.cmaes.pc + hsig * np.sqrt(
+                self.cmaes.c1 * (2 - self.cmaes.c1)
+            ) * z_mean
 
-            print(f"Generation {gg+1}, Mean fitness: {fitnesses.mean():.4f}")
+            # Update covariance matrix
+            C_new = (
+                1 - self.cmaes.c1 - self.cmaes.cmu
+            ) * self.cmaes.C + self.cmaes.c1 * np.outer(self.cmaes.pc, self.cmaes.pc)
+            for i in range(self.cmaes.num_perturbations):
+                C_new += self.cmaes.cmu * self.cmaes.weights[i] * np.outer(Z[i], Z[i])
+            self.cmaes.C = C_new
 
-            if gg % 1 == 0:
-                self.plot(self.rnn.unflatten(self.parameters))
-            if gg % 25 == 0:
-                self.render(self.rnn.unflatten(self.parameters))
+            # Update step size
+            self.cmaes.sigma *= np.exp(
+                (np.linalg.norm(self.cmaes.ps) / self.cmaes.chiN - 1)
+                * 0.5
+                / self.cmaes.damps
+            )
+
+            # Print best fitness in each generation
+            print(f"Generation {gg+1}: Best fitness = {fitness.max()}")
+
+            # Save
+            if gg % 10 == 0:
+                self.plot(self.rnn.unflatten(self.cmaes.mean))
+            if gg % 50 == 0:
+                self.render(self.rnn.unflatten(self.cmaes.mean))
             if gg % 100 == 0:
-                file = f"../models/best_rnn_gen_{gg}_ES.pkl"
+                file = f"../models/best_rnn_gen_{gg}_CMA-ES.pkl"
             else:
-                file = f"../models/best_rnn_gen_curr_ES.pkl"
+                file = f"../models/best_rnn_gen_curr_CMA-ES.pkl"
             with open(file, "wb") as f:
                 pickle.dump(self.rnn, f)
 
-        return self.rnn.unflatten(self.parameters)
+        return self.mean  # Return best found solution
 
 
 # %%
@@ -598,8 +690,7 @@ if __name__ == "__main__":
         activation=tanh,
         time_constant=10e-3,
     )
-    best_solution = reacher.cmas.optimize()
-    # best_rnn = reacher.evolve()
+    best_rnn = reacher.evolve()
 
 # %%
 """
@@ -612,9 +703,10 @@ if __name__ == "__main__":
 .##.....##.########.##....##.########..########.##.....##
 """
 models_dir = "../models"
-gen_idx = 400  # Specify the generation index you want to plot
-model_file = f"best_rnn_gen_{gen_idx}_ES.pkl"
-model_file = "best_rnn_gen_curr_ES.pkl"
+gen_idx = 800  # Specify the generation index you want to plot
+model_file = f"best_rnn_gen_{gen_idx}_CMA-ES.pkl"
+# model_file = "best_rnn_gen_curr_CMA-ES.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
 reacher.render(best_rnn)
+reacher.plot(best_rnn)
