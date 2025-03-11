@@ -9,12 +9,14 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 import os
+import time
 import torch
 import torch.nn as nn
-import numpy as np
 import cma
 import mujoco
 import mujoco.viewer
+import numpy as np
+import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
 
@@ -46,6 +48,12 @@ class RNNController(nn.Module):
         out, hidden = self.rnn(x, hidden)
         out = self.fc(out)
         return torch.sigmoid(out), hidden
+
+    def get_params(self):
+        params = np.concatenate(
+            [p.detach().cpu().numpy().ravel() for p in rnn.parameters()]
+        )
+        return params
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters())
@@ -90,17 +98,17 @@ class SequentialReachingEnv(gym.Env):
 
         # Observation space: 12 sensor readings + 3D target position
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(15,), dtype=np.float64
         )
 
         # Action space: 4 muscle activations
-        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32)
+        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float64)
 
         # Get the site ID using the name of your end effector
         self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
 
         # Parse target positions from CSV file
-        self.reachable_points = self.parse_targets("../src/targets.csv")
+        self.reachable_positions = self.parse_targets("../src/targets.csv")
 
     def parse_targets(self, targets_path="path/to/targets.csv", bins=100):
         target_positions = np.loadtxt(
@@ -114,10 +122,10 @@ class SequentialReachingEnv(gym.Env):
         return [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_indices]
 
     def sample_targets(self, num_samples=10):
-        sampled_points = np.random.choice(
-            len(self.reachable_points), num_samples, replace=False
+        sampled_positions = np.random.choice(
+            len(self.reachable_positions), num_samples, replace=False
         )
-        return [self.reachable_points[i] for i in sampled_points]
+        return [self.reachable_positions[i] for i in sampled_positions]
 
     def update_target(self, position):
         self.data.mocap_pos = position
@@ -135,7 +143,9 @@ class SequentialReachingEnv(gym.Env):
         reward = -distance
 
         done = self.data.time > self.max_target_duration * self.max_num_targets
-        if distance < 0.05:
+        if distance < 0.05 or self.data.time > self.max_target_duration * (
+            self.target_idx + 1
+        ):
             if self.target_idx < self.max_num_targets - 1:
                 self.target_idx += 1
                 self.update_target(self.target_positions[self.target_idx])
@@ -166,6 +176,10 @@ class SequentialReachingEnv(gym.Env):
             self.viewer.cam.azimuth = 90
             self.viewer.cam.elevation = 0
         else:
+            # step_start = time.time()
+            # time_until_next_step = self.model.opt.timestep - (time.time() - step_start)
+            # if time_until_next_step > 0:
+            #     time.sleep(time_until_next_step)
             self.viewer.sync()
 
     def close(self):
@@ -237,28 +251,25 @@ def evaluate(params, seed=None, render=False):
 """
 
 os.chdir(os.path.dirname(__file__))
-# print(os.path.abspath('../../mujoco/arm_model.xml'))
-# print("Current working directory:", os.getcwd())
 
 rnn = RNNController()
 num_params = rnn.get_num_params()
 
-es = cma.CMAEvolutionStrategy(num_params * [0.0], 0.5)
+es = cma.CMAEvolutionStrategy(rnn.get_params(), 0.1)
 
 while not es.stop():
     solutions = es.ask()
-    rewards = [evaluate(sol, es.countiter) for sol in solutions]
+    rewards = [evaluate(sol, seed=es.countiter) for sol in solutions]
     es.tell(solutions, rewards)
     es.disp()
     es.logger.add()
 
     if es.countiter % 10 == 0:
-        es.result_pretty()
-        es.logger.plot()
-        for i in range(10):
-            evaluate(es.result.xbest, i, render=True)
+        evaluate(es.result.xbest, seed=es.countiter, render=True)
 
 es.result_pretty()
 es.logger.plot()
 
 torch.save(es.result.xbest, "best_rnn_params.pth")
+
+# %%
