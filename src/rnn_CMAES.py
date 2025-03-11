@@ -356,8 +356,8 @@ class EvolveSequentialReacher:
             alpha=self.env.model.opt.timestep / time_constant,
         )
 
-        with open("../models/best_rnn_gen_curr.pkl", "rb") as f:
-            self.rnn = pickle.load(f)
+        # with open("../models/best_rnn_gen_curr.pkl", "rb") as f:
+        #     self.rnn = pickle.load(f)
 
         self.parameters = self.rnn.flatten()
         self.num_parameters = len(self.parameters)
@@ -405,9 +405,9 @@ class EvolveSequentialReacher:
 
             if self.env.data.time > target_offset_times[target_idx]:
                 target_idx += 1
-                if seed < 100:
-                    rnn.init_state()
-                    self.env.reset()
+                # if seed < 100:
+                #     rnn.init_state()
+                #     self.env.reset()
                 if target_idx < self.num_targets:
                     self.env.update_target(target_positions[target_idx])
 
@@ -684,7 +684,7 @@ if __name__ == "__main__":
         num_targets=15,
         num_individuals=100,
         num_generations=1000,
-        num_hidden_units=10,
+        num_hidden_units=25,
         mutation_rate=0.01,
         learning_rate=0.0005,
         activation=tanh,
