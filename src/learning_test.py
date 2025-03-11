@@ -94,7 +94,7 @@ class ArmEnv(gym.Env):
         super(ArmEnv, self).__init__()
 
         # Load MuJoCo model
-        self.model = mujoco.MjModel.from_xml_path("mujoco/arm_model.xml")
+        self.model = mujoco.MjModel.from_xml_path("../mujoco/arm_model.xml")
         self.data = mujoco.MjData(self.model)
 
         # Define state space (target position + sensor data)
