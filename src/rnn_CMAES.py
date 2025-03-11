@@ -332,11 +332,9 @@ class EvolveSequentialReacher:
         self,
         target_duration,
         num_targets,
-        num_individuals,
         num_generations,
         num_hidden_units,
         mutation_rate,
-        learning_rate,
         activation,
         time_constant,
     ):
@@ -344,7 +342,6 @@ class EvolveSequentialReacher:
         self.num_targets = num_targets
         self.num_generations = num_generations
         self.mutation_rate = mutation_rate
-        self.learning_rate = learning_rate
         self.env = MuJoCoPlant()
 
         self.rnn = RNN(
@@ -673,20 +670,16 @@ class EvolveSequentialReacher:
 """
 # GPU parallel..
 # time constants..
-# activation functions??
+# activation functions..
 # plot input space..
-# target/trial durations..
-# ES??
 if __name__ == "__main__":
     os.chdir(os.path.dirname(__file__))
     reacher = EvolveSequentialReacher(
         target_duration=(4, 2, 6),
         num_targets=15,
-        num_individuals=100,
         num_generations=1000,
         num_hidden_units=25,
-        mutation_rate=0.01,
-        learning_rate=0.0005,
+        mutation_rate=0.5,
         activation=tanh,
         time_constant=10e-3,
     )
