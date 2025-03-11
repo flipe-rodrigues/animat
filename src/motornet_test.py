@@ -2,6 +2,7 @@ import torch as th
 import motornet as mn
 import matplotlib.pyplot as plt
 import os
+import json
 
 # Create the rigid tendon arm
 effector = mn.effector.RigidTendonArm26(muscle=mn.muscle.RigidTendonHillMuscleThelen())
@@ -116,49 +117,50 @@ plot_training_log(losses)
 plotor = mn.plotor.plot_pos_over_time
 
 def plot_simulations(xy, target_xy):
-  target_x = target_xy[:, -1, 0]
-  target_y = target_xy[:, -1, 1]
+    target_x = target_xy[:, -1, 0]
+    target_y = target_xy[:, -1, 1]
 
-  plt.figure(figsize=(10,3))
+    plt.figure(figsize=(10,3))
 
-  plt.subplot(1,2,1)
-  plt.ylim([-1.1, 1.1])
-  plt.xlim([-1.1, 1.1])
-  plotor(axis=plt.gca(), cart_results=xy)
-  plt.scatter(target_x, target_y)
+    plt.subplot(1,2,1)
+    plt.ylim([-1.1, 1.1])
+    plt.xlim([-1.1, 1.1])
+    plotor(axis=plt.gca(), cart_results=xy)
+    plt.scatter(target_x, target_y)
 
-  plt.subplot(1,2,2)
-  plt.ylim([-2, 2])
-  plt.xlim([-2, 2])
-  plotor(axis=plt.gca(), cart_results=xy - target_xy)
-  plt.axhline(0, c="grey")
-  plt.axvline(0, c="grey")
-  plt.xlabel("X distance to target")
-  plt.ylabel("Y distance to target")
-  plt.show()
+    plt.subplot(1,2,2)
+    plt.ylim([-2, 2])
+    plt.xlim([-2, 2])
+    plotor(axis=plt.gca(), cart_results=xy - target_xy)
+    plt.axhline(0, c="grey")
+    plt.axvline(0, c="grey")
+    plt.xlabel("X distance to target")
+    plt.ylabel("Y distance to target")
+    plt.show()
 
 
 plot_simulations(xy=th.detach(xy), target_xy=th.detach(tg))
 
+# Define file paths
+save_dir = "save"
+weight_file = os.path.join(save_dir, "weights")
+log_file = os.path.join(save_dir, "log.json")
+cfg_file = os.path.join(save_dir, "cfg.json")
 
-weight_file = os.path.join("save", "weights")
-log_file = os.path.join("save", "log.json")
-cfg_file = os.path.join("save", "cfg.json")
+# Create the save directory if it does not exist
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
 
-
-# save model weights
+# Save model weights
 th.save(policy.state_dict(), weight_file)
 
-
-# save training history (log)
+# Save training history (log)
 with open(log_file, 'w') as file:
-  json.dump(losses, file)
+    json.dump(losses, file)
 
-
-# save environment configuration dictionary
+# Save environment configuration dictionary
 cfg = env.get_save_config()
 with open(cfg_file, 'w') as file:
-  json.dump(cfg, file)
-
+    json.dump(cfg, file)
 
 print("done.")
