@@ -40,9 +40,16 @@ class RNNController(nn.Module):
         super(RNNController, self).__init__()
         self.hidden_size = hidden_size
         self.rnn = nn.RNN(
-            input_size, hidden_size, batch_first=True, nonlinearity="tanh"
+            input_size, hidden_size, batch_first=True, nonlinearity="tanh" 
         )
         self.fc = nn.Linear(hidden_size, output_size)
+
+    def init_weights(self):
+        for name, param in rnn.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_normal(param)
+            elif 'bias' in name:
+                nn.init.zeros_(param)
 
     def forward(self, x, hidden):
         out, hidden = self.rnn(x, hidden)
@@ -253,9 +260,8 @@ def evaluate(params, seed=None, render=False):
 os.chdir(os.path.dirname(__file__))
 
 rnn = RNNController()
-num_params = rnn.get_num_params()
 
-es = cma.CMAEvolutionStrategy(rnn.get_params(), 0.1)
+es = cma.CMAEvolutionStrategy(rnn.get_params(), 0.5)
 
 while not es.stop():
     solutions = es.ask()
@@ -264,7 +270,7 @@ while not es.stop():
     es.disp()
     es.logger.add()
 
-    if es.countiter % 10 == 0:
+    if (es.countiter - 1) % 10 == 0:
         evaluate(es.result.xbest, seed=es.countiter, render=True)
 
 es.result_pretty()
