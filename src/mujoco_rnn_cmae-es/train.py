@@ -46,7 +46,7 @@ class RNNController(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        for name, param in self.rnn.named_parameters():
+        for name, param in self.named_parameters():
             if 'weight' in name:
                 nn.init.xavier_normal_(param)
             elif 'bias' in name:
@@ -59,7 +59,7 @@ class RNNController(nn.Module):
 
     def get_params(self):
         params = np.concatenate(
-            [p.detach().cpu().numpy().ravel() for p in rnn.parameters()]
+            [p.detach().cpu().numpy().ravel() for p in self.parameters()]
         )
         return params
 
@@ -116,7 +116,7 @@ class SequentialReachingEnv(gym.Env):
         self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
 
         # Parse target positions from CSV file
-        self.reachable_positions = self.parse_targets("../../src/targets.csv")
+        self.reachable_positions = self.parse_targets("../src/targets.csv")
 
     def parse_targets(self, targets_path="path/to/targets.csv", bins=100):
         target_positions = np.loadtxt(
@@ -215,7 +215,7 @@ def evaluate(params, seed=None, render=False):
     torch.manual_seed(seed)
 
     env = SequentialReachingEnv(
-        xml_path="../../mujoco/arm_model.xml",
+        xml_path="../mujoco/arm_model.xml",
         max_num_targets=10,
         max_target_duration=3,
     )
@@ -257,6 +257,7 @@ def evaluate(params, seed=None, render=False):
 .##....##.##.....##.##.....##.........##.......##....##
 ..######..##.....##.##.....##.........########..######.
 """
+
 os.chdir(os.path.dirname(__file__))
 
 rnn = RNNController()
@@ -277,3 +278,4 @@ es.result_pretty()
 es.logger.plot()
 
 torch.save(es.result.xbest, "best_rnn_params.pth")
+
