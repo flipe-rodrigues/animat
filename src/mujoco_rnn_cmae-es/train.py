@@ -43,11 +43,12 @@ class RNNController(nn.Module):
             input_size, hidden_size, batch_first=True, nonlinearity="tanh" 
         )
         self.fc = nn.Linear(hidden_size, output_size)
+        self.init_weights()
 
     def init_weights(self):
         for name, param in rnn.named_parameters():
             if 'weight' in name:
-                nn.init.xavier_normal(param)
+                nn.init.xavier_normal_(param)
             elif 'bias' in name:
                 nn.init.zeros_(param)
 
