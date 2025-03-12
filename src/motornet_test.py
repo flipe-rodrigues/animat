@@ -58,7 +58,7 @@ policy = Policy(env.observation_space.shape[0], 32, env.n_muscles, device=device
 optimizer = th.optim.Adam(policy.parameters(), lr=10**-3)
 
 batch_size = 8
-n_batch = 100
+n_batch = 1000
 losses = []
 interval = 10
 

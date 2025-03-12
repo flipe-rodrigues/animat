@@ -52,11 +52,11 @@ class RNNController(nn.Module):
             elif "bias" in name:
                 nn.init.zeros_(param)
 
-    def forward(self, x, hidden):
-        x[-4:] /= 100
-        out, hidden = self.rnn.forward(x, hidden)
-        out = self.fc(out)
-        return torch.sigmoid(out), hidden
+    def forward(self, input, hidden):
+        # input[-4:] /= 100
+        output, hidden = self.rnn.forward(input, hidden)
+        output = self.fc(output)
+        return torch.sigmoid(output), hidden
 
     def get_params(self):
         params = np.concatenate(
@@ -105,13 +105,38 @@ class SequentialReachingEnv(gym.Env):
         self.max_target_duration = max_target_duration
         self.viewer = None
 
+        num_actuators = self.model.nu
+
+        # Define bounds for each sensor
+        x_low, x_high = -1, 1
+        y_low, y_high = -1, 1
+        pos_low, pos_high = 0, 1
+        vel_low, vel_high = -1, 1
+        frc_low, frc_high = -100, 0
+
         # Observation space: 12 sensor readings + 3D target position
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(15,), dtype=np.float64
+        self.observation_space = gym.spaces.Box(
+            low=np.concatenate(
+                [
+                    [x_low, 0, y_low],  # Target position
+                    np.full(num_actuators, pos_low),  # Actuator positions
+                    np.full(num_actuators, vel_low),  # Actuator velocities
+                    np.full(num_actuators, frc_low),  # Actuator forces
+                ]
+            ),
+            high=np.concatenate(
+                [
+                    [x_high, 0, y_high],
+                    np.full(num_actuators, pos_high),
+                    np.full(num_actuators, vel_high),
+                    np.full(num_actuators, frc_high),
+                ]
+            ),
+            dtype=np.float32,
         )
 
         # Action space: 4 muscle activations
-        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float64)
+        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32)
 
         # Get the site ID using the name of your end effector
         self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
@@ -177,15 +202,15 @@ class SequentialReachingEnv(gym.Env):
         return obs, {}
 
     def render(self):
-        if self.viewer is not None:
-            self.viewer.sync()
-        else:
+        if self.viewer is None:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
             self.viewer.cam.lookat[:] = [0, -1.5, -0.5]
             self.viewer.cam.azimuth = 90
             self.viewer.cam.elevation = 0
+        else:
+            self.viewer.sync()
 
     def close(self):
         if self.viewer is not None:
@@ -226,6 +251,8 @@ def evaluate(params, seed=None, render=False):
 
     done = False
     while not done:
+        if render:
+            env.render()
 
         obs_tensor = torch.tensor(obs, dtype=torch.float64).unsqueeze(0).unsqueeze(0)
         action, hidden = rnn(obs_tensor, hidden)
@@ -234,14 +261,11 @@ def evaluate(params, seed=None, render=False):
         obs, reward, done = env.step(action)
         total_reward += reward
 
-        if render:
-            env.render()
-
         if done:
             break
 
     env.close()
-    return -total_reward  # CMA-ES minimizes, so negate reward
+    return -total_reward * env.model.opt.timestep  # CMA-ES minimizes, so negate reward
 
 
 # %%
@@ -277,5 +301,3 @@ es.logger.plot()
 
 torch.save(es.result.xbest, "best_rnn_params.pth")
 
-
-# %%
