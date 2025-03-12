@@ -13,12 +13,35 @@ import os
 import torch
 import torch.nn as nn
 import cma
+import pickle
 import mujoco
 import mujoco.viewer
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
+
+# %%
+"""
+.##.....##.########.####.##.......####.########.##....##
+.##.....##....##.....##..##........##.....##.....##..##.
+.##.....##....##.....##..##........##.....##......####..
+.##.....##....##.....##..##........##.....##.......##...
+.##.....##....##.....##..##........##.....##.......##...
+.##.....##....##.....##..##........##.....##.......##...
+..#######.....##....####.########.####....##.......##...
+"""
+
+
+def get_root_path():
+    root_path = os.path.abspath(os.path.dirname(__file__))
+    while root_path != os.path.dirname(root_path):
+        if os.path.exists(os.path.join(root_path, ".git")):
+            break
+        root_path = os.path.dirname(root_path)
+    return root_path
+
 
 # %%
 # Define the RNN controller
@@ -53,7 +76,6 @@ class RNNController(nn.Module):
                 nn.init.zeros_(param)
 
     def forward(self, input, hidden):
-        # input[-4:] /= 100
         output, hidden = self.rnn.forward(input, hidden)
         output = self.fc(output)
         return torch.sigmoid(output), hidden
@@ -93,73 +115,63 @@ class SequentialReachingEnv(gym.Env):
 
     def __init__(
         self,
-        xml_path="path/to/your_model.xml",
+        xml_file="your_model.xml",
         max_num_targets=10,
         max_target_duration=3,
     ):
         super().__init__()
 
+        mj_dir = os.path.join(get_root_path(), "mujoco")
+
+        xml_path = os.path.join(mj_dir, xml_file)
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         self.max_num_targets = max_num_targets
         self.max_target_duration = max_target_duration
         self.viewer = None
 
-        num_actuators = self.model.nu
-
-        # Define bounds for each sensor
-        x_low, x_high = -1, 1
-        y_low, y_high = -1, 1
-        pos_low, pos_high = 0, 1
-        vel_low, vel_high = -1, 1
-        frc_low, frc_high = -100, 0
-
-        # Observation space: 12 sensor readings + 3D target position
-        self.observation_space = gym.spaces.Box(
-            low=np.concatenate(
-                [
-                    [x_low, 0, y_low],  # Target position
-                    np.full(num_actuators, pos_low),  # Actuator positions
-                    np.full(num_actuators, vel_low),  # Actuator velocities
-                    np.full(num_actuators, frc_low),  # Actuator forces
-                ]
-            ),
-            high=np.concatenate(
-                [
-                    [x_high, 0, y_high],
-                    np.full(num_actuators, pos_high),
-                    np.full(num_actuators, vel_high),
-                    np.full(num_actuators, frc_high),
-                ]
-            ),
-            dtype=np.float32,
-        )
-
-        # Action space: 4 muscle activations
-        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32)
-
         # Get the site ID using the name of your end effector
         self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
 
-        # Parse target positions from CSV file
-        self.reachable_positions = self.parse_targets("../../src/targets.csv")
+        # Load sensor stats
+        sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
+        with open(sensor_stats_path, "rb") as f:
+            self.sensor_stats = pickle.load(f)
 
-    def parse_targets(self, targets_path="path/to/targets.csv", bins=100):
-        target_positions = np.loadtxt(
-            targets_path, delimiter=",", skiprows=1, usecols=(0, 2)
+        # Load target stats
+        target_stats_path = os.path.join(mj_dir, "target_stats.pkl")
+        with open(target_stats_path, "rb") as f:
+            self.target_stats = pickle.load(f)
+
+        # Define the lower and upper bounds for each feature (15 features)
+        low_values = np.concatenate(
+            [
+                self.sensor_stats["Min"].values,
+                self.target_stats["Min"].values,
+            ]
         )
-        x, y = target_positions[:, 0], target_positions[:, 1]
-        counts2d, x_edges, y_edges = np.histogram2d(x, y, bins=bins)
-        x_centers = (x_edges[:-1] + x_edges[1:]) / 2
-        y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-        nonzero_indices = np.argwhere(counts2d > 0)
-        return [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_indices]
+        high_values = np.concatenate(
+            [
+                self.sensor_stats["Max"].values,
+                self.target_stats["Max"].values,
+            ]
+        )
+
+        # Observation space: 12 sensor readings + 3D target position
+        self.observation_space = spaces.Box(
+            low=low_values, high=high_values, dtype=np.float64
+        )
+
+        # Action space: 4 muscle activations
+        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float64)
+
+        # Load valid target positions
+        reachable_positions_path = os.path.join(mj_dir, "reachable_positions.pkl")
+        with open(reachable_positions_path, "rb") as f:
+            self.reachable_positions = pickle.load(f)
 
     def sample_targets(self, num_samples=10):
-        sampled_positions = np.random.choice(
-            len(self.reachable_positions), num_samples, replace=False
-        )
-        return [self.reachable_positions[i] for i in sampled_positions]
+        return self.reachable_positions.sample(num_samples).values
 
     def update_target(self, position):
         self.data.mocap_pos = position
@@ -237,7 +249,7 @@ def evaluate(params, seed=None, render=False):
     torch.manual_seed(seed)
 
     env = SequentialReachingEnv(
-        xml_path="../../mujoco/arm_model.xml",
+        xml_file="arm_model.xml",
         max_num_targets=10,
         max_target_duration=3,
     )
@@ -279,16 +291,13 @@ def evaluate(params, seed=None, render=False):
 .##....##.##.....##.##.....##.........##.......##....##
 ..######..##.....##.##.....##.........########..######.
 """
-
-os.chdir(os.path.dirname(__file__))
-
 rnn = RNNController()
 
 es = cma.CMAEvolutionStrategy(x0=rnn.get_params(), sigma0=0.5)
 
 while not es.stop():
     solutions = es.ask()
-    rewards = [evaluate(sol, seed=0) for sol in solutions]
+    rewards = [evaluate(sol, seed=0, render=False) for sol in solutions]
     es.tell(solutions, rewards)
     es.disp()
     es.logger.add()
@@ -301,3 +310,13 @@ es.logger.plot()
 
 torch.save(es.result.xbest, "best_rnn_params.pth")
 
+#%%
+
+# Plot the loss over time
+plt.figure()
+plt.plot(es.logger.f, label='Loss')
+plt.xlabel('Iteration')
+plt.ylabel('Loss')
+plt.title('Loss over Time')
+plt.legend()
+plt.show()

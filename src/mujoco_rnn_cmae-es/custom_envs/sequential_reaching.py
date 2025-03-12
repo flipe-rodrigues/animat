@@ -9,14 +9,11 @@ import time
 class SequentialReachingEnv(gym.Env):
     """Custom 2-Joint Limb with 4 Muscles, 12 Sensors, and a Target Position"""
 
-    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 50}
-
     def __init__(
         self,
         xml_path="path/to/your_model.xml",
         max_num_targets=10,
         max_target_duration=3,
-        render_mode=None,
     ):
         super().__init__()
 
@@ -24,22 +21,46 @@ class SequentialReachingEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
         self.max_num_targets = max_num_targets
         self.max_target_duration = max_target_duration
-        self.render_mode = render_mode
         self.viewer = None
 
+        num_actuators = self.model.nu
+
+        # Define bounds for each sensor
+        x_low, x_high = -1, 1
+        y_low, y_high = -1, 1
+        pos_low, pos_high = 0, 1
+        vel_low, vel_high = -1, 1
+        frc_low, frc_high = -100, 0
+
         # Observation space: 12 sensor readings + 3D target position
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(15,), dtype=np.float32
+        self.observation_space = gym.spaces.Box(
+            low=np.concatenate(
+                [
+                    [x_low, 0, y_low],  # Target position
+                    np.full(num_actuators, pos_low),  # Actuator positions
+                    np.full(num_actuators, vel_low),  # Actuator velocities
+                    np.full(num_actuators, frc_low),  # Actuator forces
+                ]
+            ),
+            high=np.concatenate(
+                [
+                    [x_high, 0, y_high],
+                    np.full(num_actuators, pos_high),
+                    np.full(num_actuators, vel_high),
+                    np.full(num_actuators, frc_high),
+                ]
+            ),
+            dtype=np.float32,
         )
 
         # Action space: 4 muscle activations
-        self.action_space = spaces.Box(low=0, high=1.0, shape=(4,), dtype=np.float32)
+        self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32)
 
         # Get the site ID using the name of your end effector
         self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
 
         # Parse target positions from CSV file
-        self.reachable_points = self.parse_targets("../../src/targets.csv")
+        self.reachable_positions = self.parse_targets("../src/targets.csv")
 
     def parse_targets(self, targets_path="path/to/targets.csv", bins=100):
         target_positions = np.loadtxt(
@@ -53,10 +74,10 @@ class SequentialReachingEnv(gym.Env):
         return [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_indices]
 
     def sample_targets(self, num_samples=10):
-        sampled_points = np.random.choice(
-            len(self.reachable_points), num_samples, replace=False
+        sampled_positions = np.random.choice(
+            len(self.reachable_positions), num_samples, replace=False
         )
-        return [self.reachable_points[i] for i in sampled_points]
+        return [self.reachable_positions[i] for i in sampled_positions]
 
     def update_target(self, position):
         self.data.mocap_pos = position
@@ -74,17 +95,19 @@ class SequentialReachingEnv(gym.Env):
         reward = -distance
 
         done = self.data.time > self.max_target_duration * self.max_num_targets
-        if distance < 0.05:
+        if distance < 0.05 or self.data.time > self.max_target_duration * (
+            self.target_idx + 1
+        ):
             if self.target_idx < self.max_num_targets - 1:
                 self.target_idx += 1
                 self.update_target(self.target_positions[self.target_idx])
             else:
                 done = True
 
-        obs = np.concatenate([sensor_data, self.target_positions[self.target_idx]])
-        return obs, reward, done, False, {}
+        obs = np.concatenate([self.target_positions[self.target_idx], sensor_data])
+        return obs, reward, done
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None):
         super().reset(seed=seed)
         mujoco.mj_resetData(self.model, self.data)
 
@@ -93,33 +116,19 @@ class SequentialReachingEnv(gym.Env):
         self.update_target(self.target_positions[self.target_idx])
 
         sensor_data = self.data.sensordata.copy()
-        obs = np.concatenate([sensor_data, self.target_positions[self.target_idx]])
+        obs = np.concatenate([self.target_positions[self.target_idx], sensor_data])
         return obs, {}
 
     def render(self):
-        if self.render_mode == "human":
-            if self.viewer is None:
-                self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
-                self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
-                self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-                self.viewer.cam.lookat[:] = [0, -1.5, -0.5]
-                self.viewer.cam.azimuth = 90
-                self.viewer.cam.elevation = 0
-            else:
-                self.viewer.sync()
-                # step_start = time.time()
-                # time_until_next_step = self.model.opt.timestep - (
-                #     time.time() - step_start
-                # )
-                # if time_until_next_step > 0:
-                #     time.sleep(time_until_next_step)
-        elif self.render_mode == "rgb_array":
-            width, height = 640, 480
-            img = np.zeros((height, width, 3), dtype=np.uint8)
-            mujoco.mjr_render(
-                self.viewer.viewport, self.viewer.scene, self.viewer.context
-            )
-            return img
+        if self.viewer is None:
+            self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
+            self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
+            self.viewer.cam.lookat[:] = [0, -1.5, -0.5]
+            self.viewer.cam.azimuth = 90
+            self.viewer.cam.elevation = 0
+        else:
+            self.viewer.sync()
 
     def close(self):
         if self.viewer is not None:
