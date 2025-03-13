@@ -122,7 +122,6 @@ class SequentialReachingEnv(gym.Env):
         super().__init__()
 
         mj_dir = os.path.join(get_root_path(), "mujoco")
-
         xml_path = os.path.join(mj_dir, xml_file)
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
@@ -132,7 +131,6 @@ class SequentialReachingEnv(gym.Env):
 
         # Get the site ID using the name of your end effector
         self.hand_id = self.model.geom("hand").id
-        
 
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
@@ -147,14 +145,14 @@ class SequentialReachingEnv(gym.Env):
         # Define the lower and upper bounds for each feature (15 features)
         low_values = np.concatenate(
             [
-                self.sensor_stats["Min"].values,
-                self.target_stats["Min"].values,
+                self.sensor_stats["min"].values,
+                self.target_stats["min"].values,
             ]
         )
         high_values = np.concatenate(
             [
-                self.sensor_stats["Max"].values,
-                self.target_stats["Max"].values,
+                self.sensor_stats["max"].values,
+                self.target_stats["max"].values,
             ]
         )
 
@@ -276,7 +274,9 @@ def evaluate(params, seed=None, render=False):
             break
 
     env.close()
-    return -total_reward / (env.max_num_targets * env.max_target_duration)  # CMA-ES minimizes, so negate reward
+    return -total_reward / (
+        env.max_num_targets * env.max_target_duration
+    )  # CMA-ES minimizes, so negate reward
 
 
 # %%
@@ -320,6 +320,6 @@ plt.title("Loss over Time")
 plt.legend()
 plt.show()
 
-#%%
+# %%
 es = cma.CMAEvolutionStrategy(8 * [0], 0.5)
 es.optimize(cma.ff.rosen)
