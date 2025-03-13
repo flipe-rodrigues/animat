@@ -59,7 +59,7 @@ def get_root_path():
 class RNNController(nn.Module):
     """RNN Controller for 2-joint limb with 4 muscles and 12 sensors + target pos"""
 
-    def __init__(self, input_size=15, hidden_size=15, output_size=4):
+    def __init__(self, input_size=15, hidden_size=25, output_size=4):
         super(RNNController, self).__init__()
         self.hidden_size = hidden_size
         self.rnn = nn.RNN(
@@ -131,7 +131,8 @@ class SequentialReachingEnv(gym.Env):
         self.viewer = None
 
         # Get the site ID using the name of your end effector
-        self.hand_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "hand")
+        self.hand_id = self.model.geom("hand").id
+        
 
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
@@ -189,9 +190,7 @@ class SequentialReachingEnv(gym.Env):
         reward = -distance
 
         done = self.data.time > self.max_target_duration * self.max_num_targets
-        if distance < 0.05 or self.data.time > self.max_target_duration * (
-            self.target_idx + 1
-        ):
+        if self.data.time > self.max_target_duration * (self.target_idx + 1):
             if self.target_idx < self.max_num_targets - 1:
                 self.target_idx += 1
                 self.update_target(self.target_positions[self.target_idx])
@@ -277,7 +276,7 @@ def evaluate(params, seed=None, render=False):
             break
 
     env.close()
-    return -total_reward * env.model.opt.timestep  # CMA-ES minimizes, so negate reward
+    return -total_reward / (env.max_num_targets * env.max_target_duration)  # CMA-ES minimizes, so negate reward
 
 
 # %%
@@ -310,13 +309,17 @@ es.logger.plot()
 
 torch.save(es.result.xbest, "best_rnn_params.pth")
 
-#%%
+# %%
 
 # Plot the loss over time
 plt.figure()
-plt.plot(es.logger.f, label='Loss')
-plt.xlabel('Iteration')
-plt.ylabel('Loss')
-plt.title('Loss over Time')
+plt.plot(es.logger.f, label="Loss")
+plt.xlabel("Iteration")
+plt.ylabel("Loss")
+plt.title("Loss over Time")
 plt.legend()
 plt.show()
+
+#%%
+es = cma.CMAEvolutionStrategy(8 * [0], 0.5)
+es.optimize(cma.ff.rosen)

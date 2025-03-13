@@ -27,14 +27,14 @@ import matplotlib.pyplot as plt
 """
 
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "mujoco/arm_model.xml"
+MODEL_XML_PATH = "../mujoco/arm_model.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 10  # seconds
+dur2run = 3600 * 3  # seconds
 time_data = []
 hand_position_data = {
     "x": [],
@@ -191,19 +191,19 @@ hand_position_df = pd.DataFrame(hand_position_data)
 # Compute statistics
 sensor_stats_df = pd.DataFrame(
     {
-        "Range": sensor_df.max() - sensor_df.min(),
-        "Min": sensor_df.min(),
-        "Max": sensor_df.max(),
-        "Mean": sensor_df.mean(),
+        "min": sensor_df.min(),
+        "max": sensor_df.max(),
+        "mean": sensor_df.mean(),
+        "std": sensor_df.std(),
     }
 )
 
 target_stats_df = pd.DataFrame(
     {
-        "Range": hand_position_df.max() - hand_position_df.min(),
-        "Min": hand_position_df.min(),
-        "Max": hand_position_df.max(),
-        "Mean": hand_position_df.mean(),
+        "min": hand_position_df.min(),
+        "max": hand_position_df.max(),
+        "mean": hand_position_df.mean(),
+        "std": hand_position_df.std(),
     }
 )
 
@@ -227,6 +227,7 @@ plt.figure()
 plt.imshow(
     counts2d, extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]), origin="lower"
 )
+plt.show()
 
 x_centers = (x_edges[:-1] + x_edges[1:]) / 2
 y_centers = (y_edges[:-1] + y_edges[1:]) / 2
@@ -239,8 +240,8 @@ plt.imshow(
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
+plt.show()
 
-# Convert reachable_positions to a DataFrame
 reachable_positions_df = pd.DataFrame(reachable_positions, columns=["x", "y", "z"])
 
 print(reachable_positions_df)
@@ -264,3 +265,5 @@ target_stats_df.to_pickle(f"{save_dir}/target_stats.pkl")
 
 # Save reachable_positions_df to the mujoco folder
 reachable_positions_df.to_pickle(f"{save_dir}/reachable_positions.pkl")
+
+# %%
