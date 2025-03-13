@@ -100,6 +100,14 @@ def manhattan_distance(pos1, pos2):
     return np.sum(np.abs(pos1 - pos2))
 
 
+def l1_norm(x):
+    return np.sum(np.abs(x))
+
+
+def l2_norm(x):
+    return np.sqrt(np.sum(x**2))
+
+
 def normalize01(x, xmin, xmax, default=0.5):
     valid = xmax > xmin
     xnorm = np.full_like(x, default)
@@ -370,7 +378,8 @@ class EvolveSequentialReacher:
         time,
         sensors,
         target,
-        distance,
+        manhattan_distance,
+        euclidean_distance,
         energy,
         reward,
         fitness,
@@ -393,7 +402,8 @@ class EvolveSequentialReacher:
                 "triceps_frc": [],
             }
             self.logger["target"] = []
-            self.logger["distance"] = []
+            self.logger["manhattan_distance"] = []
+            self.logger["euclidean_distance"] = []
             self.logger["energy"] = []
             self.logger["reward"] = []
             self.logger["fitness"] = []
@@ -402,7 +412,8 @@ class EvolveSequentialReacher:
         for i, key in enumerate(self.logger["sensors"].keys()):
             self.logger["sensors"][key].append(sensors[i])
         self.logger["target"].append(target)
-        self.logger["distance"].append(distance)
+        self.logger["manhattan_distance"].append(manhattan_distance)
+        self.logger["euclidean_distance"].append(euclidean_distance)
         self.logger["energy"].append(energy)
         self.logger["reward"].append(reward)
         self.logger["fitness"].append(fitness)
@@ -437,8 +448,9 @@ class EvolveSequentialReacher:
             self.env.step(muscle_activations)
             hand_position = self.env.get_hand_pos()
             target_position = target_positions[target_idx]
-            distance = manhattan_distance(hand_position, target_position)
-            reward = -distance
+            manhattan_distance = l1_norm(target_position - hand_position)
+            euclidean_distance = l2_norm(target_position - hand_position)
+            reward = -euclidean_distance
             total_reward += reward
 
             if log:
@@ -446,7 +458,8 @@ class EvolveSequentialReacher:
                     time=self.env.data.time,
                     sensors=feedback,
                     target=target_position,
-                    distance=distance,
+                    manhattan_distance=manhattan_distance,
+                    euclidean_distance=euclidean_distance,
                     energy=np.mean(muscle_activations),
                     reward=reward,
                     fitness=total_reward / trial_duration,
@@ -499,7 +512,12 @@ class EvolveSequentialReacher:
         axes[1, 0].set_title("Force")
 
         # Fitness
-        axes[1, 1].plot(log["time"], log["distance"], label="Distance")
+        axes[1, 1].plot(
+            log["time"], log["manhattan_distance"], label="Manhattan distance"
+        )
+        axes[1, 1].plot(
+            log["time"], log["euclidean_distance"], label="Euclidean distance"
+        )
         axes[1, 1].plot(log["time"], log["reward"], label="Reward")
         axes[1, 1].plot(log["time"], log["energy"], label="Energy")
         axes[1, 1].set_title("Fitness")
@@ -559,8 +577,9 @@ class EvolveSequentialReacher:
                 best_fitness = fitnesses[best_idx]
                 best_rnn = self.population[best_idx]
 
+            # Current generation statistics
             print(
-                f"Generation {gg+1}, Best: {fitnesses[best_idx]:.2f}, Worst: {fitnesses[worst_idx]:.2f}"
+                f"Generation {gg+1}, Best: {fitnesses[best_idx]:.2f}, Worst: {fitnesses[worst_idx]:.2f}, Sigma:{self.mutation_rate}"
             )
 
             # Select top individuals
@@ -581,7 +600,7 @@ class EvolveSequentialReacher:
                 self.population.append(child)
 
             if gg % 10 == 0:
-                self.evaluate(best_rnn, seed=0, render=False, log=True)
+                self.evaluate(best_rnn, seed=0, render=True, log=True)
                 self.plot()
             if gg % 100 == 0:
                 file = f"../models/best_rnn_gen_{gg}_GA.pkl"
@@ -638,7 +657,9 @@ model_file = f"best_rnn_gen_{gen_idx}.pkl"
 model_file = "best_rnn_gen_curr.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
-reacher.render(best_rnn)
+
+reacher.evaluate(best_rnn, seed=0, render=True, log=True)
+reacher.plot()
 
 # %%
 """
