@@ -34,7 +34,7 @@ data = mujoco.MjData(model)
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 3600 * 3  # seconds
+dur2run = 360  # seconds
 time_data = []
 hand_position_data = {
     "x": [],
@@ -76,7 +76,7 @@ while data.time < dur2run:
         sensor_data[key].append(data.sensordata[i])
 
     # Store hand position data
-    hand_position = data.geom_xpos[hand_id, :].copy()
+    hand_position = data.geom_xpos[hand_id].copy()
     for i, key in enumerate(hand_position_data.keys()):
         hand_position_data[key].append(hand_position[i])
 

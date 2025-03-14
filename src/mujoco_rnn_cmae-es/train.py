@@ -23,6 +23,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 # %%
+# Define utility functions
 """
 .##.....##.########.####.##.......####.########.##....##
 .##.....##....##.....##..##........##.....##.....##..##.
@@ -41,6 +42,21 @@ def get_root_path():
             break
         root_path = os.path.dirname(root_path)
     return root_path
+
+
+def zscore(x, xmean, xstd, default=0):
+    valid = xstd > 0
+    xnorm = np.full_like(x, default)
+    xnorm[valid] = (x[valid] - xmean[valid]) / xstd[valid]
+    return xnorm
+
+
+def l1_norm(x):
+    return np.sum(np.abs(x))
+
+
+def l2_norm(x):
+    return np.sqrt(np.sum(x**2))
 
 
 # %%
@@ -69,7 +85,7 @@ class RNNController(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        for name, param in self.named_parameters():
+        for name, param in self.rnn.named_parameters():
             if "weight" in name:
                 nn.init.xavier_normal_(param)
             elif "bias" in name:
@@ -127,7 +143,9 @@ class SequentialReachingEnv(gym.Env):
         self.data = mujoco.MjData(self.model)
         self.max_num_targets = max_num_targets
         self.max_target_duration = max_target_duration
+        self.max_trial_duration = max_num_targets * max_target_duration
         self.viewer = None
+        self.logger = None
 
         # Get the site ID using the name of your end effector
         self.hand_id = self.model.geom("hand").id
@@ -161,6 +179,11 @@ class SequentialReachingEnv(gym.Env):
             low=low_values, high=high_values, dtype=np.float64
         )
 
+        # not sure this matters in the end..
+        # be sure to convince yourself that it does..
+        # the hand position bug may have been the reason why this wasn't going anywhere..
+        self.observation_space = spaces.Box(low=-3, high=3, dtype=np.float64)
+
         # Action space: 4 muscle activations
         self.action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float64)
 
@@ -176,16 +199,44 @@ class SequentialReachingEnv(gym.Env):
         self.data.mocap_pos = position
         mujoco.mj_forward(self.model, self.data)
 
+    def get_obs(self):
+        target_position = self.data.mocap_pos[0].copy()
+        sensor_data = self.data.sensordata.copy()
+        norm_target_position = zscore(
+            target_position,
+            self.target_stats["mean"].values,
+            self.target_stats["std"].values,
+        )
+        norm_sensor_data = zscore(
+            sensor_data,
+            self.sensor_stats["mean"].values,
+            self.sensor_stats["std"].values,
+        )
+        return norm_target_position, norm_sensor_data
+        # return target_position, sensor_data
+
+    def get_hand_pos(self):
+        return self.data.geom_xpos[self.hand_id].copy()
+
     def step(self, action):
         self.data.ctrl[:] = action
         mujoco.mj_step(self.model, self.data)
 
-        sensor_data = self.data.sensordata.copy()
-        hand_position = self.data.site_xpos[self.hand_id]
-        distance = np.linalg.norm(
-            hand_position - self.target_positions[self.target_idx]
-        )
+        context, feedback = self.get_obs()
+        hand_position = self.get_hand_pos()
+        target_position = self.target_positions[self.target_idx]
+        distance = l2_norm(target_position - hand_position)
         reward = -distance
+
+        self.log_data(
+            time=self.data.time,
+            sensors=feedback,
+            target=target_position,
+            distance=distance,
+            energy=np.mean(action),
+            reward=reward,
+            fitness=0,
+        )
 
         done = self.data.time > self.max_target_duration * self.max_num_targets
         if self.data.time > self.max_target_duration * (self.target_idx + 1):
@@ -195,7 +246,7 @@ class SequentialReachingEnv(gym.Env):
             else:
                 done = True
 
-        obs = np.concatenate([self.target_positions[self.target_idx], sensor_data])
+        obs = np.concatenate([context, feedback])
         return obs, reward, done
 
     def reset(self, seed=None):
@@ -226,6 +277,128 @@ class SequentialReachingEnv(gym.Env):
             self.viewer.close()
             self.viewer = None
 
+    def log_data(
+        self,
+        time,
+        sensors,
+        target,
+        distance,
+        energy,
+        reward,
+        fitness,
+    ):
+        if self.logger is None:
+            self.logger = {}
+            self.logger["time"] = []
+            self.logger["sensors"] = {
+                "deltoid_len": [],
+                "latissimus_len": [],
+                "biceps_len": [],
+                "triceps_len": [],
+                "deltoid_vel": [],
+                "latissimus_vel": [],
+                "biceps_vel": [],
+                "triceps_vel": [],
+                "deltoid_frc": [],
+                "latissimus_frc": [],
+                "biceps_frc": [],
+                "triceps_frc": [],
+            }
+            self.logger["target"] = []
+            self.logger["distance"] = []
+            self.logger["energy"] = []
+            self.logger["reward"] = []
+            self.logger["fitness"] = []
+
+        self.logger["time"].append(time)
+        for i, key in enumerate(self.logger["sensors"].keys()):
+            self.logger["sensors"][key].append(sensors[i])
+        self.logger["target"].append(target)
+        self.logger["distance"].append(distance)
+        self.logger["energy"].append(energy)
+        self.logger["reward"].append(reward)
+        self.logger["fitness"].append(fitness)
+
+    def plot(self):
+        _, axes = plt.subplots(2, 2)
+
+        # Length
+        axes[0, 0].plot(
+            self.logger["time"], self.logger["sensors"]["deltoid_len"], label="Deltoid"
+        )
+        axes[0, 0].plot(
+            self.logger["time"],
+            self.logger["sensors"]["latissimus_len"],
+            label="Latissimus",
+        )
+        axes[0, 0].plot(
+            self.logger["time"], self.logger["sensors"]["biceps_len"], label="Biceps"
+        )
+        axes[0, 0].plot(
+            self.logger["time"], self.logger["sensors"]["triceps_len"], label="Triceps"
+        )
+        axes[0, 0].set_title("Length")
+
+        # Velocity
+        axes[0, 1].plot(
+            self.logger["time"], self.logger["sensors"]["deltoid_vel"], label="Deltoid"
+        )
+        axes[0, 1].plot(
+            self.logger["time"],
+            self.logger["sensors"]["latissimus_vel"],
+            label="Latissimus",
+        )
+        axes[0, 1].plot(
+            self.logger["time"], self.logger["sensors"]["biceps_vel"], label="Biceps"
+        )
+        axes[0, 1].plot(
+            self.logger["time"], self.logger["sensors"]["triceps_vel"], label="Triceps"
+        )
+        axes[0, 1].set_title("Velocity")
+        axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
+
+        # Force
+        axes[1, 0].plot(
+            self.logger["time"], self.logger["sensors"]["deltoid_frc"], label="Deltoid"
+        )
+        axes[1, 0].plot(
+            self.logger["time"],
+            self.logger["sensors"]["latissimus_frc"],
+            label="Latissimus",
+        )
+        axes[1, 0].plot(
+            self.logger["time"], self.logger["sensors"]["biceps_frc"], label="Biceps"
+        )
+        axes[1, 0].plot(
+            self.logger["time"], self.logger["sensors"]["triceps_frc"], label="Triceps"
+        )
+        axes[1, 0].set_title("Force")
+
+        # Fitness
+        axes[1, 1].plot(self.logger["time"], self.logger["distance"], label="Distance")
+        axes[1, 1].plot(self.logger["time"], self.logger["reward"], label="Reward")
+        axes[1, 1].plot(self.logger["time"], self.logger["energy"], label="Energy")
+        axes[1, 1].set_title("Fitness")
+        axes[1, 1].set_ylim([-1.05, 1.05])
+        axes[1, 1].legend(loc="lower left")
+
+        # Create a twin axis (right y-axis)
+        ax_right = axes[1, 1].twinx()
+        fitness = np.cumsum(self.logger["reward"]) / self.max_trial_duration
+        ax_right.plot(self.logger["time"], fitness, color="r")
+        ax_right.set_ylabel("Cumulative Reward", color="r")
+        ax_right.tick_params(axis="y", labelcolor="r")
+
+        # Set axis labels
+        for ax in axes.flat:
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Arb.")
+
+        plt.tight_layout()
+        plt.show()
+
+        self.logger = None
+
 
 # %%
 # Define the evaluation function
@@ -240,7 +413,7 @@ class SequentialReachingEnv(gym.Env):
 """
 
 
-def evaluate(params, seed=None, render=False):
+def evaluate(params, seed=None, render=False, plot=False):
     """Runs an episode using the given RNN parameters and returns the negative distance."""
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -274,9 +447,11 @@ def evaluate(params, seed=None, render=False):
             break
 
     env.close()
-    return -total_reward / (
-        env.max_num_targets * env.max_target_duration
-    )  # CMA-ES minimizes, so negate reward
+
+    if plot:
+        env.plot()
+
+    return -total_reward / env.max_trial_duration  # CMA-ES minimizes, so negate reward
 
 
 # %%
@@ -291,18 +466,21 @@ def evaluate(params, seed=None, render=False):
 ..######..##.....##.##.....##.........########..######.
 """
 rnn = RNNController()
-
 es = cma.CMAEvolutionStrategy(x0=rnn.get_params(), sigma0=0.5)
 
 while not es.stop():
     solutions = es.ask()
-    rewards = [evaluate(sol, seed=0, render=False) for sol in solutions]
+    # rewards = [evaluate(sol, seed=0, render=True, plot=True) for sol in solutions]
+    # rewards = [evaluate(sol, seed=0) for sol in solutions]
+    rewards = [evaluate(sol, seed=es.countiter) for sol in solutions]
     es.tell(solutions, rewards)
     es.disp()
     es.logger.add()
 
     if es.countiter % 10 == 0:
-        evaluate(es.result.xbest, seed=0, render=True)
+        evaluate(es.result.xbest, seed=0, render=True, plot=True)
+        with open(f"outcmaes/xbest_{es.countiter}.pkl", "wb") as f:
+            pickle.dump(es.result.xbest, f)
 
 es.result_pretty()
 es.logger.plot()
