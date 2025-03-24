@@ -60,18 +60,18 @@ def evolve(env, rnn, num_individuals=25, num_generations=10, mutation_rate=0.1):
         worst_idx = np.argmin(fitnesses)
 
         # Adapt mutation rate
-        if best_rnn == population[best_idx]:
-            too_low_counter = 0
-            too_high_counter += 1
-        else:
-            too_low_counter += 1
-            too_high_counter = 0
-        if too_low_counter >= adaptation_threshold:
-            mutation_rate *= 1.1
-            too_low_counter = 0
-        if too_high_counter >= adaptation_threshold:
-            mutation_rate *= 0.9
-            too_high_counter = 0
+        # if best_rnn == population[best_idx]:
+        #     too_low_counter = 0
+        #     too_high_counter += 1
+        # else:
+        #     too_low_counter += 1
+        #     too_high_counter = 0
+        # if too_low_counter >= adaptation_threshold:
+        #     mutation_rate *= 1.1
+        #     too_low_counter = 0
+        # if too_high_counter >= adaptation_threshold:
+        #     mutation_rate *= 0.9
+        #     too_high_counter = 0
 
         if fitnesses[best_idx] > best_fitness:
             best_fitness = fitnesses[best_idx]
@@ -137,7 +137,7 @@ if __name__ == "__main__":
         rnn=rnn,
         num_individuals=100,
         num_generations=1000,
-        mutation_rate=0.1,
+        mutation_rate=0.05,
     )
 
 # %%
