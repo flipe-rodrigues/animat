@@ -48,6 +48,11 @@ def evolve(
     best_rnn = []
     best_fitness = -np.inf
 
+    # Mutation rate adaptation parameters
+    too_low_counter = 0
+    too_high_counter = 0
+    adaptation_threshold = 5
+
     for gg in range(num_generations):
         perturbations = np.random.randn(num_perturbations, rnn.num_params)
         population = np.array(
@@ -64,6 +69,20 @@ def evolve(
         )
         best_idx = np.argmax(fitnesses)
         worst_idx = np.argmin(fitnesses)
+
+        # Adapt mutation rate
+        if best_rnn == population[best_idx]:
+            too_low_counter = 0
+            too_high_counter += 1
+        else:
+            too_low_counter += 1
+            too_high_counter = 0
+        if too_low_counter >= adaptation_threshold:
+            mutation_rate *= 1.1
+            too_low_counter = 0
+        if too_high_counter >= adaptation_threshold:
+            mutation_rate *= 0.9
+            too_high_counter = 0
 
         gradient = fitnesses @ perturbations / (num_perturbations * mutation_rate)
         parameters = parameters + learning_rate * gradient
@@ -119,7 +138,7 @@ if __name__ == "__main__":
         num_perturbations=25,
         num_generations=1000,
         mutation_rate=0.1,
-        learning_rate=0.1,
+        learning_rate=0.01,
     )
 
 # %%

@@ -44,6 +44,7 @@ def evolve(env, rnn, num_individuals=25, num_generations=10, mutation_rate=0.1):
     best_rnn = []
     best_fitness = -np.inf
 
+    # Mutation rate adaptation parameters
     too_low_counter = 0
     too_high_counter = 0
     adaptation_threshold = 5
