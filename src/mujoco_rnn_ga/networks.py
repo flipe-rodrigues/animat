@@ -18,6 +18,11 @@ class RNN:
         self.init_state()
         self.num_params = len(self.get_params())
 
+    def __eq__(self, other):
+        if isinstance(other, RNN):
+            return all(self.get_params() == other.get_params())
+        return False
+
     def init_weights(self):
         self.W_in = self.init_fcn(n_in=self.input_size, n_out=self.hidden_size)
         self.W_h = self.init_fcn(n_in=self.hidden_size, n_out=self.hidden_size)
@@ -50,40 +55,50 @@ class RNN:
         return output
 
     def get_params(self):
-        return np.concatenate([
-            self.W_in.flatten(),
-            self.W_h.flatten(),
-            self.W_out.flatten(),
-            self.b_h.flatten(),
-            self.b_out.flatten()
-        ])
-    
+        return np.concatenate(
+            [
+                self.W_in.flatten(),
+                self.W_h.flatten(),
+                self.W_out.flatten(),
+                self.b_h.flatten(),
+                self.b_out.flatten(),
+            ]
+        )
+
     def set_params(self, params):
         idx = 0
         W_in_size = self.input_size * self.hidden_size
         W_h_size = self.hidden_size * self.hidden_size
         W_out_size = self.hidden_size * self.output_size
 
-        self.W_in = params[idx:idx + W_in_size].reshape(self.input_size, self.hidden_size)
+        self.W_in = params[idx : idx + W_in_size].reshape(
+            self.input_size, self.hidden_size
+        )
         idx += W_in_size
-        self.W_h = params[idx:idx + W_h_size].reshape(self.hidden_size, self.hidden_size)
+        self.W_h = params[idx : idx + W_h_size].reshape(
+            self.hidden_size, self.hidden_size
+        )
         idx += W_h_size
-        self.W_out = params[idx:idx + W_out_size].reshape(self.hidden_size, self.output_size)
+        self.W_out = params[idx : idx + W_out_size].reshape(
+            self.hidden_size, self.output_size
+        )
         idx += W_out_size
 
-        self.b_h = params[idx:idx + self.hidden_size]
+        self.b_h = params[idx : idx + self.hidden_size]
         idx += self.hidden_size
-        self.b_out = params[idx:idx + self.output_size]
+        self.b_out = params[idx : idx + self.output_size]
 
     def from_params(self, params):
         """Return a new RNN with weights and biases from flattened parameters."""
         idx = 0
+
         def extract(shape):
             nonlocal idx
             size = np.prod(shape)
             param = params[idx : idx + size].reshape(shape)
             idx += size
             return param
+
         new_rnn = copy.deepcopy(self)
         new_rnn.W_in = extract((self.hidden_size, self.input_size))
         new_rnn.W_h = extract((self.hidden_size, self.hidden_size))

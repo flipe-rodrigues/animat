@@ -21,6 +21,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
+import time
 
 # %%
 # Define utility functions
@@ -225,15 +226,18 @@ class SequentialReachingEnv(gym.Env):
         context, feedback = self.get_obs()
         hand_position = self.get_hand_pos()
         target_position = self.target_positions[self.target_idx]
-        distance = l2_norm(target_position - hand_position)
-        reward = -distance
+        manhattan_distance = l1_norm(target_position - hand_position)
+        euclidean_distance = l2_norm(target_position - hand_position)
+        energy = np.mean(action)
+        reward = -(euclidean_distance + manhattan_distance + energy)
 
         self.log_data(
             time=self.data.time,
             sensors=feedback,
             target=target_position,
-            distance=distance,
-            energy=np.mean(action),
+            manhattan_distance=manhattan_distance,
+            euclidean_distance=euclidean_distance,
+            energy=energy,
             reward=reward,
             fitness=0,
         )
@@ -271,6 +275,7 @@ class SequentialReachingEnv(gym.Env):
             self.viewer.cam.elevation = 0
         else:
             self.viewer.sync()
+            time.sleep(self.model.opt.timestep)
 
     def close(self):
         if self.viewer is not None:
@@ -282,7 +287,8 @@ class SequentialReachingEnv(gym.Env):
         time,
         sensors,
         target,
-        distance,
+        manhattan_distance,
+        euclidean_distance,
         energy,
         reward,
         fitness,
@@ -305,7 +311,8 @@ class SequentialReachingEnv(gym.Env):
                 "triceps_frc": [],
             }
             self.logger["target"] = []
-            self.logger["distance"] = []
+            self.logger["manhattan_distance"] = []
+            self.logger["euclidean_distance"] = []
             self.logger["energy"] = []
             self.logger["reward"] = []
             self.logger["fitness"] = []
@@ -314,7 +321,8 @@ class SequentialReachingEnv(gym.Env):
         for i, key in enumerate(self.logger["sensors"].keys()):
             self.logger["sensors"][key].append(sensors[i])
         self.logger["target"].append(target)
-        self.logger["distance"].append(distance)
+        self.logger["manhattan_distance"].append(manhattan_distance)
+        self.logger["euclidean_distance"].append(euclidean_distance)
         self.logger["energy"].append(energy)
         self.logger["reward"].append(reward)
         self.logger["fitness"].append(fitness)
@@ -375,12 +383,21 @@ class SequentialReachingEnv(gym.Env):
         axes[1, 0].set_title("Force")
 
         # Fitness
-        axes[1, 1].plot(self.logger["time"], self.logger["distance"], label="Distance")
+        axes[1, 1].plot(
+            self.logger["time"],
+            self.logger["manhattan_distance"],
+            label="Manhattan distance",
+        )
+        axes[1, 1].plot(
+            self.logger["time"],
+            self.logger["euclidean_distance"],
+            label="Euclidean distance",
+        )
         axes[1, 1].plot(self.logger["time"], self.logger["reward"], label="Reward")
         axes[1, 1].plot(self.logger["time"], self.logger["energy"], label="Energy")
         axes[1, 1].set_title("Fitness")
         axes[1, 1].set_ylim([-1.05, 1.05])
-        axes[1, 1].legend(loc="lower left")
+        axes[1, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
         # Create a twin axis (right y-axis)
         ax_right = axes[1, 1].twinx()
@@ -477,15 +494,35 @@ while not es.stop():
     es.disp()
     es.logger.add()
 
+    plot = es.countiter % 10 == 0
+    render = es.countiter % 100 == 0
+
     if es.countiter % 10 == 0:
-        evaluate(es.result.xbest, seed=0, render=True, plot=True)
+        evaluate(es.result.xbest, seed=0, render=False, plot=True)
+    if es.countiter % 100 == 0:
         with open(f"outcmaes/xbest_{es.countiter}.pkl", "wb") as f:
-            pickle.dump(es.result.xbest, f)
+            pickle.dump(es, f)
 
-es.result_pretty()
-es.logger.plot()
+with open("outcmaes/xbest_converged.pkl", "wb") as f:
+    pickle.dump(es, f)
 
-torch.save(es.result.xbest, "best_rnn_params.pth")
+# %%
+# Plot the latest xbest pickle file from outcmaes
+"""
+.########..##........#######..########
+.##.....##.##.......##.....##....##...
+.##.....##.##.......##.....##....##...
+.########..##.......##.....##....##...
+.##........##.......##.....##....##...
+.##........##.......##.....##....##...
+.##........########..#######.....##...
+"""
+
+xbest_path = os.path.join("outcmaes", "xbest_340.pkl")
+with open(xbest_path, "rb") as f:
+    xbest = pickle.load(f)
+
+evaluate(xbest, seed=0, render=True, plot=True)
 
 # %%
 
@@ -497,7 +534,3 @@ plt.ylabel("Loss")
 plt.title("Loss over Time")
 plt.legend()
 plt.show()
-
-# %%
-es = cma.CMAEvolutionStrategy(8 * [0], 0.5)
-es.optimize(cma.ff.rosen)

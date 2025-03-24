@@ -65,10 +65,10 @@ def evolve(env, rnn, num_individuals=25, num_generations=10, mutation_rate=0.1):
         else:
             too_low_counter += 1
             too_high_counter = 0
-        if too_low_counter > adaptation_threshold:
+        if too_low_counter >= adaptation_threshold:
             mutation_rate *= 1.1
             too_low_counter = 0
-        if too_high_counter > adaptation_threshold:
+        if too_high_counter >= adaptation_threshold:
             mutation_rate *= 0.9
             too_high_counter = 0
 
