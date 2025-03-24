@@ -71,18 +71,18 @@ def evolve(
         worst_idx = np.argmin(fitnesses)
 
         # Adapt mutation rate
-        if best_rnn == population[best_idx]:
-            too_low_counter = 0
-            too_high_counter += 1
-        else:
-            too_low_counter += 1
-            too_high_counter = 0
-        if too_low_counter >= adaptation_threshold:
-            mutation_rate *= 1.1
-            too_low_counter = 0
-        if too_high_counter >= adaptation_threshold:
-            mutation_rate *= 0.9
-            too_high_counter = 0
+        # if best_rnn == population[best_idx]:
+        #     too_low_counter = 0
+        #     too_high_counter += 1
+        # else:
+        #     too_low_counter += 1
+        #     too_high_counter = 0
+        # if too_low_counter >= adaptation_threshold:
+        #     mutation_rate *= 1.1
+        #     too_low_counter = 0
+        # if too_high_counter >= adaptation_threshold:
+        #     mutation_rate *= 0.9
+        #     too_high_counter = 0
 
         gradient = fitnesses @ perturbations / (num_perturbations * mutation_rate)
         parameters = parameters + learning_rate * gradient

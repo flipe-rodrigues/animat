@@ -10,6 +10,7 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 import os
+import time
 import torch
 import torch.nn as nn
 import cma
@@ -21,7 +22,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
-import time
 
 # %%
 # Define utility functions
@@ -229,7 +229,7 @@ class SequentialReachingEnv(gym.Env):
         manhattan_distance = l1_norm(target_position - hand_position)
         euclidean_distance = l2_norm(target_position - hand_position)
         energy = np.mean(action)
-        reward = -(euclidean_distance + manhattan_distance + energy)
+        reward = -(euclidean_distance + manhattan_distance + energy) / 3
 
         self.log_data(
             time=self.data.time,
@@ -400,11 +400,13 @@ class SequentialReachingEnv(gym.Env):
         axes[1, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
         # Create a twin axis (right y-axis)
+        r, g, b = np.array([1, 1, 1]) * 0.25
+        fitness_clr = (r, g, b)
         ax_right = axes[1, 1].twinx()
         fitness = np.cumsum(self.logger["reward"]) / self.max_trial_duration
-        ax_right.plot(self.logger["time"], fitness, color="r")
-        ax_right.set_ylabel("Cumulative Reward", color="r")
-        ax_right.tick_params(axis="y", labelcolor="r")
+        ax_right.plot(self.logger["time"], fitness, color=fitness_clr)
+        ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
+        ax_right.tick_params(axis="y", labelcolor=fitness_clr)
 
         # Set axis labels
         for ax in axes.flat:

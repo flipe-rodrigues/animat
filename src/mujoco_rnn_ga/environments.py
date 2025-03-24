@@ -138,7 +138,7 @@ class SequentialReachingEnv:
             manhattan_distance = l1_norm(target_position - hand_position)
             euclidean_distance = l2_norm(target_position - hand_position)
             energy = np.mean(muscle_activations)
-            reward = -(euclidean_distance + manhattan_distance + energy)
+            reward = -(euclidean_distance + manhattan_distance + energy) / 3
             total_reward += reward
 
             if log:
@@ -223,7 +223,8 @@ class SequentialReachingEnv:
         axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
         # Create a twin axis (right y-axis)
-        fitness_clr = (30, 30, 30)
+        r, g, b = np.array([1, 1, 1]) * 0.25
+        fitness_clr = (r, g, b)
         ax_right = axes[1, 1].twinx()
         ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
         ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
