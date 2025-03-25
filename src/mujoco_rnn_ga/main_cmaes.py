@@ -189,7 +189,7 @@ if __name__ == "__main__":
         solutions = []
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
-            value = -env.evaluate(rnn.from_params(x), seed=0)
+            value = -env.evaluate(rnn.from_params(x), seed=0) # change seed to gg!!!
             solutions.append((x, value))
             fitnesses.append((gg, ii, value))
             print(f"#{gg}.{ii} {value}")

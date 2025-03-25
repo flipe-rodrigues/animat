@@ -151,9 +151,9 @@ if __name__ == "__main__":
 .##.....##.########.##....##.########..########.##.....##
 """
 models_dir = "../../models"
-gen_idx = 500  # Specify the generation index you want to plot
-model_file = f"best_rnn_gen_{gen_idx}.pkl"
-model_file = "best_rnn_gen_curr_GA.pkl"
+gen_idx = 400  # Specify the generation index you want to plot
+model_file = f"best_rnn_gen_{gen_idx}_GA.pkl"
+# model_file = "best_rnn_gen_curr_GA.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     best_rnn = pickle.load(f)
 
