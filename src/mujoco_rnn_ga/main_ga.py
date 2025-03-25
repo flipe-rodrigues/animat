@@ -132,13 +132,13 @@ if __name__ == "__main__":
     env = SequentialReachingEnv(
         plant=reacher, target_duration=(3, 2, 6), num_targets=10
     )
-    best_rnn = evolve(
-        env=env,
-        rnn=rnn,
-        num_individuals=100,
-        num_generations=1000,
-        mutation_rate=0.05,
-    )
+    # best_rnn = evolve(
+    #     env=env,
+    #     rnn=rnn,
+    #     num_individuals=100,
+    #     num_generations=1000,
+    #     mutation_rate=0.05,
+    # )
 
 # %%
 """

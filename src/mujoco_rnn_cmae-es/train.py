@@ -270,7 +270,7 @@ class SequentialReachingEnv(gym.Env):
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-            self.viewer.cam.lookat[:] = [0, -1.5, -0.5]
+            self.viewer.cam.lookat[:] = [0, -1, -0.5]
             self.viewer.cam.azimuth = 90
             self.viewer.cam.elevation = 0
         else:
@@ -328,57 +328,98 @@ class SequentialReachingEnv(gym.Env):
         self.logger["fitness"].append(fitness)
 
     def plot(self):
-        _, axes = plt.subplots(2, 2)
+        _, axes = plt.subplots(2, 2, figsize=(10, 5))
+
+        linewidth = 1
+
+        # Targets
+        for t in range(0, int(self.logger["time"][-1]), 3):
+            axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
 
         # Length
         axes[0, 0].plot(
-            self.logger["time"], self.logger["sensors"]["deltoid_len"], label="Deltoid"
+            self.logger["time"],
+            self.logger["sensors"]["deltoid_len"],
+            linewidth=linewidth,
+            label="Deltoid",
         )
         axes[0, 0].plot(
             self.logger["time"],
             self.logger["sensors"]["latissimus_len"],
+            linewidth=linewidth,
             label="Latissimus",
         )
         axes[0, 0].plot(
-            self.logger["time"], self.logger["sensors"]["biceps_len"], label="Biceps"
+            self.logger["time"],
+            self.logger["sensors"]["biceps_len"],
+            linewidth=linewidth,
+            label="Biceps",
         )
         axes[0, 0].plot(
-            self.logger["time"], self.logger["sensors"]["triceps_len"], label="Triceps"
+            self.logger["time"],
+            self.logger["sensors"]["triceps_len"],
+            linewidth=linewidth,
+            label="Triceps",
         )
         axes[0, 0].set_title("Length")
 
         # Velocity
         axes[0, 1].plot(
-            self.logger["time"], self.logger["sensors"]["deltoid_vel"], label="Deltoid"
+            self.logger["time"],
+            self.logger["sensors"]["deltoid_vel"],
+            linewidth=linewidth,
+            label="Deltoid",
         )
         axes[0, 1].plot(
             self.logger["time"],
             self.logger["sensors"]["latissimus_vel"],
+            linewidth=linewidth,
             label="Latissimus",
         )
         axes[0, 1].plot(
-            self.logger["time"], self.logger["sensors"]["biceps_vel"], label="Biceps"
+            self.logger["time"],
+            self.logger["sensors"]["biceps_vel"],
+            linewidth=linewidth,
+            label="Biceps",
         )
         axes[0, 1].plot(
-            self.logger["time"], self.logger["sensors"]["triceps_vel"], label="Triceps"
+            self.logger["time"],
+            self.logger["sensors"]["triceps_vel"],
+            linewidth=linewidth,
+            label="Triceps",
         )
         axes[0, 1].set_title("Velocity")
         axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
+        linewidth = 0.1
+
         # Force
         axes[1, 0].plot(
-            self.logger["time"], self.logger["sensors"]["deltoid_frc"], label="Deltoid"
+            self.logger["time"],
+            self.logger["sensors"]["deltoid_frc"],
+            linewidth=linewidth,
+            label="Deltoid",
         )
         axes[1, 0].plot(
             self.logger["time"],
             self.logger["sensors"]["latissimus_frc"],
+            linewidth=linewidth,
             label="Latissimus",
         )
         axes[1, 0].plot(
-            self.logger["time"], self.logger["sensors"]["biceps_frc"], label="Biceps"
+            self.logger["time"],
+            self.logger["sensors"]["biceps_frc"],
+            linewidth=linewidth,
+            label="Biceps",
         )
         axes[1, 0].plot(
-            self.logger["time"], self.logger["sensors"]["triceps_frc"], label="Triceps"
+            self.logger["time"],
+            self.logger["sensors"]["triceps_frc"],
+            linewidth=linewidth,
+            label="Triceps",
         )
         axes[1, 0].set_title("Force")
 
@@ -386,15 +427,27 @@ class SequentialReachingEnv(gym.Env):
         axes[1, 1].plot(
             self.logger["time"],
             self.logger["manhattan_distance"],
+            linewidth=linewidth,
             label="Manhattan distance",
         )
         axes[1, 1].plot(
             self.logger["time"],
             self.logger["euclidean_distance"],
+            linewidth=linewidth,
             label="Euclidean distance",
         )
-        axes[1, 1].plot(self.logger["time"], self.logger["reward"], label="Reward")
-        axes[1, 1].plot(self.logger["time"], self.logger["energy"], label="Energy")
+        axes[1, 1].plot(
+            self.logger["time"],
+            self.logger["energy"],
+            linewidth=linewidth,
+            label="Energy",
+        )
+        axes[1, 1].plot(
+            self.logger["time"],
+            self.logger["reward"],
+            linewidth=linewidth,
+            label="Reward",
+        )
         axes[1, 1].set_title("Fitness")
         axes[1, 1].set_ylim([-1.05, 1.05])
         axes[1, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
@@ -524,13 +577,22 @@ xbest_path = os.path.join("outcmaes", "xbest_340.pkl")
 with open(xbest_path, "rb") as f:
     xbest = pickle.load(f)
 
-evaluate(xbest, seed=0, render=True, plot=True)
+esbest_path = os.path.join("outcmaes", "esbest_600_euclideanOnly.pkl")
+esbest_path = os.path.join("outcmaes", "xbest_500.pkl")
+with open(esbest_path, "rb") as f:
+    esbest = pickle.load(f)
+xbest = esbest.result.xbest
+
+evaluate(xbest, seed=0, render=False, plot=True)
 
 # %%
 
+print(esbest)
+
 # Plot the loss over time
 plt.figure()
-plt.plot(es.logger.f, label="Loss")
+# esbest.logger.plot_all()
+plt.plot(esbest.logger.f, label="Loss")
 plt.xlabel("Iteration")
 plt.ylabel("Loss")
 plt.title("Loss over Time")
