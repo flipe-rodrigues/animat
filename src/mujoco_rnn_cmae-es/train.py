@@ -80,7 +80,7 @@ class RNNController(nn.Module):
         super(RNNController, self).__init__()
         self.hidden_size = hidden_size
         self.rnn = nn.RNN(
-            input_size, hidden_size, batch_first=True, nonlinearity="tanh"
+            input_size, hidden_size, batch_first=True, bias=True, nonlinearity="tanh"
         )
         self.fc = nn.Linear(hidden_size, output_size)
         self.init_weights()
@@ -577,13 +577,13 @@ xbest_path = os.path.join("outcmaes", "xbest_340.pkl")
 with open(xbest_path, "rb") as f:
     xbest = pickle.load(f)
 
-esbest_path = os.path.join("outcmaes", "esbest_600_euclideanOnly.pkl")
-esbest_path = os.path.join("outcmaes", "xbest_500.pkl")
+esbest_path = os.path.join("outcmaes", "xbest_600.pkl")
+# esbest_path = os.path.join("outcmaes", "esbest_800_euclideanOnly.pkl")
 with open(esbest_path, "rb") as f:
     esbest = pickle.load(f)
 xbest = esbest.result.xbest
 
-evaluate(xbest, seed=0, render=False, plot=True)
+evaluate(xbest, seed=0, render=True, plot=True)
 
 # %%
 

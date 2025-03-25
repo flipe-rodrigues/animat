@@ -29,6 +29,7 @@ class RNN:
         self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
 
     def init_biases(self):
+        self.b_in = np.zeros(self.input_size)
         self.b_h = np.zeros(self.hidden_size)
         self.b_out = np.zeros(self.output_size)
 
