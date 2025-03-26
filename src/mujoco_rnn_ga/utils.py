@@ -83,3 +83,9 @@ def zscore(x, xmean, xstd, default=0):
     xnorm = np.full_like(x, default)
     xnorm[valid] = (x[valid] - xmean[valid]) / xstd[valid]
     return xnorm
+
+
+def action_entropy(action, base=2):
+    action = np.clip(action, 1e-10, 1)  # Avoid log(0)
+    action_pdf = action / action.sum()
+    return -np.sum(action_pdf * np.log(action_pdf) / np.log(base))

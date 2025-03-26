@@ -16,57 +16,7 @@ from environments import SequentialReachingEnv
 from networks import RNN
 from cmaes import CMA
 from utils import *
-
-
-# %%
-"""
-..######..##.....##....###............########..######.
-.##....##.###...###...##.##...........##.......##....##
-.##.......####.####..##...##..........##.......##......
-.##.......##.###.##.##.....##.#######.######....######.
-.##.......##.....##.#########.........##.............##
-.##....##.##.....##.##.....##.........##.......##....##
-..######..##.....##.##.....##.........########..######.
-"""
-
-
-# class CMAES:
-#     def __init__(
-#         self,
-#         num_parameters,
-#         lambda_,
-#         mean0,
-#         sigma0,
-#     ):
-#         self.num_parameters = num_parameters
-#         self.num_perturbations = lambda_
-
-#         self.mean = mean0
-#         self.sigma = sigma0
-
-#         self.C = np.eye(num_parameters)  # Covariance matrix
-#         self.pc = np.zeros(num_parameters)  # Evolution path
-#         self.ps = np.zeros(num_parameters)
-#         self.weights = np.log(lambda_ + 0.5) - np.log(np.arange(1, lambda_ + 1))
-#         self.weights /= self.weights.sum()
-#         self.mu_eff = 1 / np.sum(self.weights**2)  # Effective number of parents
-#         self.c1 = 2 / ((num_parameters + 1.3) ** 2 + self.mu_eff)
-#         self.cmu = min(
-#             1 - self.c1,
-#             2
-#             * (self.mu_eff - 2 + 1 / self.mu_eff)
-#             / ((num_parameters + 2) ** 2 + self.mu_eff),
-#         )
-#         self.damps = (
-#             1
-#             + 2 * max(0, np.sqrt((self.mu_eff - 1) / (num_parameters + 1)) - 1)
-#             + self.c1
-#             + self.cmu
-#         )
-#         self.chiN = np.sqrt(num_parameters) * (
-#             1 - 1 / (4 * num_parameters) + 1 / (21 * num_parameters**2)
-#         )
-
+import numpy as np
 
 # %%
 """
@@ -174,34 +124,68 @@ if __name__ == "__main__":
         hidden_size=25,
         output_size=reacher.num_actuators,
         activation=tanh,
-        alpha=reacher.model.opt.timestep / 10e-3,
+        alpha=reacher.model.opt.timestep / 25e-3,
     )
     env = SequentialReachingEnv(
-        plant=reacher, 
-        target_duration=(3, 2, 6), 
-        num_targets=10
+        plant=reacher, target_duration=(3, 2, 6), num_targets=10
     )
-    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)        
-    
+    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
+
     num_generations = 1000
     fitnesses = []
     for gg in range(num_generations):
         solutions = []
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
-            value = -env.evaluate(rnn.from_params(x), seed=0) # change seed to gg!!!
+            value = -env.evaluate(rnn.from_params(x), seed=gg)
             solutions.append((x, value))
             fitnesses.append((gg, ii, value))
             print(f"#{gg}.{ii} {value}")
         optimizer.tell(solutions)
 
-#%%
+        best_rnn = rnn.from_params(optimizer.mean)
+        if gg % 10 == 0:
+            env.evaluate(best_rnn, seed=0, render=True, log=True)
+            env.plot()
+        if gg % 100 == 0:
+            file = f"../../models/best_rnn_gen_{gg}_cmaesv2.pkl"
+        else:
+            file = f"../../models/best_rnn_gen_curr_cmaesv2.pkl"
+        with open(file, "wb") as f:
+            pickle.dump(best_rnn, f)
+
+# %%
 # Plot the loss over iterations
-fitness_values = [solution[1] for solution in solutions]
-plt.plot(fitness_values)
-plt.xlabel('Iterations')
-plt.ylabel('Objective Function Value (Loss)')
-plt.title('Fitness During CMA-ES Optimization')
+# fitness_values = [solution[1] for solution in solutions]
+# plt.plot(fitness_values)
+# Extract fitness values for each generation
+fitnesses = np.array(fitnesses)
+generations = np.unique(fitnesses[:, 0])
+avg_fitness = []
+std_fitness = []
+
+for gen in generations:
+    gen_fitness = fitnesses[fitnesses[:, 0] == gen][:, 2]
+    avg_fitness.append(np.mean(gen_fitness))
+    std_fitness.append(np.std(gen_fitness))
+
+avg_fitness = np.array(avg_fitness)
+std_fitness = np.array(std_fitness)
+
+# Plot average fitness with standard deviation
+plt.plot(generations, avg_fitness, label="Average Fitness")
+plt.fill_between(
+    generations,
+    avg_fitness - std_fitness,
+    avg_fitness + std_fitness,
+    color="blue",
+    alpha=0.2,
+    label="Standard Deviation",
+)
+plt.legend()
+plt.xlabel("Iterations")
+plt.ylabel("Objective Function Value (Loss)")
+plt.title("Fitness During CMA-ES Optimization")
 plt.show()
 
 # %%
@@ -214,12 +198,12 @@ plt.show()
 .##....##..##.......##...###.##.....##.##.......##....##.
 .##.....##.########.##....##.########..########.##.....##
 """
-# models_dir = "../models"
-# gen_idx = 500  # Specify the generation index you want to plot
-# model_file = f"best_rnn_gen_{gen_idx}.pkl"
+models_dir = "../../models"
+gen_idx = 200  # Specify the generation index you want to plot
+model_file = f"best_rnn_gen_{gen_idx}_cmaesv2.pkl"
 # model_file = "best_rnn_gen_curr.pkl"
-# with open(os.path.join(models_dir, model_file), "rb") as f:
-#     best_rnn = pickle.load(f)
-best_rnn = rnn.from_params(optimizer.mean)
+with open(os.path.join(models_dir, model_file), "rb") as f:
+    best_rnn = pickle.load(f)
+# best_rnn = rnn.from_params(optimizer.mean)
 env.evaluate(best_rnn, seed=0, render=True, log=True)
 env.plot()

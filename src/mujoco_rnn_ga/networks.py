@@ -29,31 +29,29 @@ class RNN:
         self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
 
     def init_biases(self):
-        self.b_in = np.zeros(self.input_size)
         self.b_h = np.zeros(self.hidden_size)
         self.b_out = np.zeros(self.output_size)
 
     def init_state(self):
         """Reset hidden state between episodes"""
         self.h = np.zeros(self.hidden_size)
-
-    def step_tau(self, obs):
-        """Compute one RNN step"""
-        h = (1 - self.alpha) * self.h + self.alpha * self.activation(
-            self.W_in @ obs + self.W_h @ self.h + self.b_h
-        )
-        out = (1 - self.alpha) * self.out + self.alpha * logistic(
-            self.W_out @ self.h + self.b_out
-        )
-        self.h = h
-        self.out = out
-        return out
+        self.out = np.zeros(self.output_size)
 
     def step(self, obs):
         """Compute one RNN step"""
-        self.h = tanh(self.W_in @ obs + self.W_h @ self.h + self.b_h)
+        self.h = self.activation(self.W_in @ obs + self.W_h @ self.h + self.b_h)
         output = logistic(self.W_out @ self.h + self.b_out)
         return output
+
+    def step_tau(self, obs):
+        """Compute one RNN step"""
+        self.h = (1 - self.alpha) * self.h + self.alpha * self.activation(
+            self.W_in @ obs + self.W_h @ self.h + self.b_h
+        )
+        self.out = (1 - self.alpha) * self.out + self.alpha * logistic(
+            self.W_out @ self.h + self.b_out
+        )
+        return self.out
 
     def get_params(self):
         return np.concatenate(
