@@ -57,6 +57,7 @@ class SequentialReachingEnv:
         manhattan_distance,
         euclidean_distance,
         energy,
+        entropy,
         reward,
         fitness,
     ):
@@ -81,6 +82,7 @@ class SequentialReachingEnv:
             self.logger["manhattan_distance"] = []
             self.logger["euclidean_distance"] = []
             self.logger["energy"] = []
+            self.logger["entropy"] = []
             self.logger["reward"] = []
             self.logger["fitness"] = []
 
@@ -91,6 +93,7 @@ class SequentialReachingEnv:
         self.logger["manhattan_distance"].append(manhattan_distance)
         self.logger["euclidean_distance"].append(euclidean_distance)
         self.logger["energy"].append(energy)
+        self.logger["entropy"].append(entropy)
         self.logger["reward"].append(reward)
         self.logger["fitness"].append(fitness)
 
@@ -131,14 +134,20 @@ class SequentialReachingEnv:
 
             context, feedback = self.plant.get_obs()
             obs = np.concatenate([context, feedback])
-            muscle_activations = rnn.step(obs)
-            self.plant.step(muscle_activations)
+            action = rnn.step_tau(obs)
+            self.plant.step(action)
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)
             euclidean_distance = l2_norm(target_position - hand_position)
-            energy = np.mean(muscle_activations)
-            reward = -(euclidean_distance + manhattan_distance + energy) / 3
+            energy = np.mean(action)
+            entropy = action_entropy(action)
+
+            reward = -(
+                euclidean_distance * 0.9
+                + manhattan_distance * 0
+                + energy * entropy * 0.1
+            )
             total_reward += reward
 
             if log:
@@ -149,6 +158,7 @@ class SequentialReachingEnv:
                     manhattan_distance=manhattan_distance,
                     euclidean_distance=euclidean_distance,
                     energy=energy,
+                    entropy=entropy,
                     reward=reward,
                     fitness=total_reward / trial_duration,
                 )
@@ -175,57 +185,130 @@ class SequentialReachingEnv:
     def plot(self):
         log = self.logger
 
-        _, axes = plt.subplots(2, 2)
+        _, axes = plt.subplots(3, 2, figsize=(10, 10))
+
+        # Targets (NOT WORKING BECAUSE NON-CONSTANT TARGET DURATIONS!!!)
+        # for t in range(0, int(self.logger["time"][-1]), 3):
+        #     axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+    
+
+        linewidth = 1
 
         # Length
         axes[0, 0].plot(log["time"], log["sensors"]["deltoid_len"], label="Deltoid")
         axes[0, 0].plot(
             log["time"],
             log["sensors"]["latissimus_len"],
+            linewidth=linewidth,
             label="Latissimus",
         )
-        axes[0, 0].plot(log["time"], log["sensors"]["biceps_len"], label="Biceps")
-        axes[0, 0].plot(log["time"], log["sensors"]["triceps_len"], label="Triceps")
+        axes[0, 0].plot(
+            log["time"],
+            log["sensors"]["biceps_len"],
+            linewidth=linewidth,
+            label="Biceps",
+        )
+        axes[0, 0].plot(
+            log["time"],
+            log["sensors"]["triceps_len"],
+            linewidth=linewidth,
+            label="Triceps",
+        )
         axes[0, 0].set_title("Length")
 
         # Velocity
-        axes[0, 1].plot(log["time"], log["sensors"]["deltoid_vel"], label="Deltoid")
+        axes[0, 1].plot(
+            log["time"],
+            log["sensors"]["deltoid_vel"],
+            linewidth=linewidth,
+            label="Deltoid",
+        )
         axes[0, 1].plot(
             log["time"],
             log["sensors"]["latissimus_vel"],
+            linewidth=linewidth,
             label="Latissimus",
         )
-        axes[0, 1].plot(log["time"], log["sensors"]["biceps_vel"], label="Biceps")
-        axes[0, 1].plot(log["time"], log["sensors"]["triceps_vel"], label="Triceps")
+        axes[0, 1].plot(
+            log["time"],
+            log["sensors"]["biceps_vel"],
+            linewidth=linewidth,
+            label="Biceps",
+        )
+        axes[0, 1].plot(
+            log["time"],
+            log["sensors"]["triceps_vel"],
+            linewidth=linewidth,
+            label="Triceps",
+        )
         axes[0, 1].set_title("Velocity")
         axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
         # Force
-        axes[1, 0].plot(log["time"], log["sensors"]["deltoid_frc"], label="Deltoid")
         axes[1, 0].plot(
-            log["time"], log["sensors"]["latissimus_frc"], label="Latissimus"
+            log["time"],
+            log["sensors"]["deltoid_frc"],
+            linewidth=linewidth,
+            label="Deltoid",
         )
-        axes[1, 0].plot(log["time"], log["sensors"]["biceps_frc"], label="Biceps")
-        axes[1, 0].plot(log["time"], log["sensors"]["triceps_frc"], label="Triceps")
+        axes[1, 0].plot(
+            log["time"],
+            log["sensors"]["latissimus_frc"],
+            linewidth=linewidth,
+            label="Latissimus",
+        )
+        axes[1, 0].plot(
+            log["time"],
+            log["sensors"]["biceps_frc"],
+            linewidth=linewidth,
+            label="Biceps",
+        )
+        axes[1, 0].plot(
+            log["time"],
+            log["sensors"]["triceps_frc"],
+            linewidth=linewidth,
+            label="Triceps",
+        )
         axes[1, 0].set_title("Force")
 
+        # Distance
+        axes[1, 1].plot(
+            log["time"],
+            log["manhattan_distance"],
+            linewidth=linewidth,
+            label="Manhattan",
+        )
+        axes[1, 1].plot(
+            log["time"],
+            log["euclidean_distance"],
+            linewidth=linewidth,
+            label="Euclidean",
+        )
+        axes[1, 1].set_title("Distance")
+        axes[1, 1].set_ylim([-0.05, 2.05])
+        axes[1, 1].legend()
+
+        # Energy
+        axes[2, 0].plot(log["time"], log["entropy"], linewidth=0.1, label="Entropy")
+        axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
+        axes[2, 0].set_title("Energy")
+        axes[2, 0].set_ylim([-0.05, 2.05])
+        axes[2, 0].legend()
+
         # Fitness
-        axes[1, 1].plot(
-            log["time"], log["manhattan_distance"], label="Manhattan distance"
-        )
-        axes[1, 1].plot(
-            log["time"], log["euclidean_distance"], label="Euclidean distance"
-        )
-        axes[1, 1].plot(log["time"], log["reward"], label="Reward")
-        axes[1, 1].plot(log["time"], log["energy"], label="Energy")
-        axes[1, 1].set_title("Fitness")
-        axes[1, 1].set_ylim([-1.05, 1.05])
-        axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
+        axes[2, 1].plot(log["time"], log["reward"], linewidth=linewidth, label="Reward")
+        axes[2, 1].set_title("Loss")
+        axes[2, 1].set_ylim([-2.05, 0.05])
 
         # Create a twin axis (right y-axis)
         r, g, b = np.array([1, 1, 1]) * 0.25
         fitness_clr = (r, g, b)
-        ax_right = axes[1, 1].twinx()
+        ax_right = axes[2, 1].twinx()
         ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
         ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
         ax_right.tick_params(axis="y", labelcolor=fitness_clr)
