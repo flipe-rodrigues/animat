@@ -241,18 +241,18 @@ class ReachTargetTask(Task):
         muscle_activations = [physics.named.data.ctrl[actuator] for actuator in self._actuators]
         effort_penalty = -0.1 * np.sum(np.array(muscle_activations)**2)
         
-        return reward + effort_penalty
+        return 10 * reward + effort_penalty
 
     def should_terminate_episode(self, physics):
+        """Terminate the episode if the hand is close enough to the target."""
         hand_position = physics.named.data.geom_xpos["hand"]
         target_position = physics.named.data.mocap_pos["target"]
-        distance = np.linalg.norm(hand_position - target_position)
-
-        # End episode when close to target or after timeout
-        reached_target = distance < 0.01
-        timeout = physics.data.time > 5.0  # 5 second timeout
         
-        return reached_target or timeout
+        # Calculate the distance between the hand and the target
+        distance = np.linalg.norm(hand_position - target_position)
+        
+        # Terminate if the distance is below a threshold
+        return distance < 0.03  # Threshold of 3 cm
 
 
 

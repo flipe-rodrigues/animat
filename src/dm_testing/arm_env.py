@@ -9,7 +9,7 @@ from dm_control import mjcf
 import numpy as np
 import os
 
-_DEFAULT_TIME_LIMIT = 20  # Maximum episode length in seconds
+_DEFAULT_TIME_LIMIT = 5  # Maximum episode length in seconds
 _CONTROL_TIMESTEP = 0.02  # Time between agent actions in seconds
 
 def get_model_and_assets():
@@ -31,14 +31,18 @@ class Reach(base.Task):
 
     def initialize_episode(self, physics):
         """Sets the state of the environment at the start of each episode."""
+        #self._reach_task.initialize_episode(physics, self.random)
+
+        """Sets the state of the environment at the start of each episode."""
+        # Fix the target position to a constant value
+        physics.named.data.mocap_pos['target'] = [0.5, 0.5, 0.5]
         self._reach_task.initialize_episode(physics, self.random)
 
     def get_observation(self, physics):
         """Returns an observation of the state."""
         obs = {}
         
-        # Add hand and target positions
-        obs['hand_position'] = physics.named.data.geom_xpos['hand']
+        # Add target position
         obs['target_position'] = physics.named.data.mocap_pos['target']
         
         # Add muscle states
@@ -52,6 +56,16 @@ class Reach(base.Task):
     def get_reward(self, physics):
         """Returns a reward to the agent."""
         return self._reach_task.get_reward(physics)
+
+    def step(self, action):
+        """Apply the action and step the simulation."""
+        self._task.before_step(self.physics, action, self.random)
+        self.physics.step()
+        self._task.after_step(self.physics)
+        
+        # Check if the episode should terminate
+        done = self._task.should_terminate_episode(self.physics)
+        return self._get_time_step(done)
 
 def make(task_name='reach', task_kwargs=None, environment_kwargs=None, random=None):
     """Returns a new arm environment."""

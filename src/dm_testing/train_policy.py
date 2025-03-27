@@ -4,12 +4,13 @@ from dm_testing.dm_control_test import display_video
 import matplotlib.pyplot as plt
 import os
 
+
 class PolicyNetwork:
     def __init__(self, input_size, output_size, hidden_size=128):
-        self.W1 = np.random.randn(input_size, hidden_size) * np.sqrt(2.0/input_size)
-        self.b1 = np.zeros(hidden_size)
-        self.W2 = np.random.randn(hidden_size, output_size) * np.sqrt(2.0/hidden_size)
-        self.b2 = np.zeros(output_size)
+        self.W1 = np.random.randn(input_size, hidden_size).astype(np.float32) * np.sqrt(2.0/input_size)
+        self.b1 = np.zeros(hidden_size, dtype=np.float32)
+        self.W2 = np.random.randn(hidden_size, output_size).astype(np.float32) * np.sqrt(2.0/hidden_size)
+        self.b2 = np.zeros(output_size, dtype=np.float32)
         
         # Adam optimizer parameters
         self.m_W1, self.v_W1 = np.zeros_like(self.W1), np.zeros_like(self.W1)
@@ -20,38 +21,29 @@ class PolicyNetwork:
         self.epsilon = 1e-8
         self.t = 0
     
-    def forward(self, x, training=False):
-        # Store inputs and compute hidden layer
-        self.x = x
+    def forward(self, x):
+        x = x.astype(np.float32)
         self.h = np.tanh(x @ self.W1 + self.b1)
-        # Use sigmoid for output to ensure [0,1] range
-        self.y = 1/(1 + np.exp(-(self.h @ self.W2 + self.b2)))
+        self.y = 1 / (1 + np.exp(-(self.h @ self.W2 + self.b2)))
         return self.y
     
     def backward(self, states, actions, returns):
-        dW1, db1 = np.zeros_like(self.W1), np.zeros_like(self.b1)
-        dW2, db2 = np.zeros_like(self.W2), np.zeros_like(self.b2)
-        
-        for state, action, R in zip(states, actions, returns):
-            # Forward pass
-            h = np.tanh(state @ self.W1 + self.b1)
-            y = 1/(1 + np.exp(-(h @ self.W2 + self.b2)))
-            
-            # Proper log-probability gradient for continuous actions
-            # Treating policy output as mean of a Gaussian with fixed variance
-            std = 0.1  # Fixed standard deviation
-            log_prob_grad = (action - y) / (std**2)
-            dy = log_prob_grad * R
-            
-            dW2 += np.outer(h, dy)
-            db2 += dy
-            
-            dh = (dy @ self.W2.T) * (1 - h**2)
-            dW1 += np.outer(state, dh)
-            db1 += dh
-        
-        return [dW1/len(states), db1/len(states), 
-                dW2/len(states), db2/len(states)]
+        states = np.array(states, dtype=np.float32)
+        actions = np.array(actions, dtype=np.float32)
+        returns = np.array(returns, dtype=np.float32)
+
+        h = np.tanh(states @ self.W1 + self.b1)
+        y = 1 / (1 + np.exp(-(h @ self.W2 + self.b2)))
+
+        dy = (actions - y) * returns[:, None]
+        dW2 = h.T @ dy / len(states)
+        db2 = np.mean(dy, axis=0)
+
+        dh = (dy @ self.W2.T) * (1 - h**2)
+        dW1 = states.T @ dh / len(states)
+        db1 = np.mean(dh, axis=0)
+
+        return [dW1, db1, dW2, db2]
     
     def update(self, grads, learning_rate):
         self.t += 1
@@ -61,7 +53,6 @@ class PolicyNetwork:
             (self.W2, grads[2], self.m_W2, self.v_W2),
             (self.b2, grads[3], self.m_b2, self.v_b2)
         ]:
-            # Adam update
             m[:] = self.beta1 * m + (1 - self.beta1) * grad
             v[:] = self.beta2 * v + (1 - self.beta2) * (grad**2)
             m_hat = m / (1 - self.beta1**self.t)
@@ -80,8 +71,8 @@ def train():
     # Hyperparameters
     policy = PolicyNetwork(input_size, output_size)
     learning_rate = 3e-4
-    num_episodes = 3000  # Increase from 1000
-    batch_size = 4  
+    num_episodes = 50
+    batch_size = 16
     gamma = 0.99
     
     all_rewards = []
@@ -111,6 +102,13 @@ def train():
             rewards.append(time_step.reward)
             episode_reward += time_step.reward
             
+            # Debugging: Print hand and target positions
+            hand_position = time_step.observation['hand_position']
+            target_position = time_step.observation['target_position']
+            print(f"Step: Hand Position: {hand_position}, Target Position: {target_position}")
+            distance = np.linalg.norm(hand_position - target_position)
+            print(f"Distance: {distance}")
+            
             if frames is not None:
                 frames.append(env.physics.render())
         
@@ -129,23 +127,25 @@ def train():
             for r in reversed(rewards):
                 R = r + gamma * R
                 returns.insert(0, R)
-            returns = np.array(returns)
-
-            # Use a baseline for advantage estimation
-            baseline = np.mean(returns)
-            advantages = returns - baseline
-
-            # Normalize advantages
-            if len(advantages) > 1 and advantages.std() > 0:
-                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            returns = np.array(returns, dtype=np.float32)
+            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
             # Update policy (use advantages instead of returns)
-            grads = policy.backward(states, actions, advantages)
+            grads = policy.backward(states, actions, returns)
             policy.update(grads, learning_rate)
         
         if episode % 10 == 0:
             avg_reward = np.mean(all_rewards[-100:]) if len(all_rewards) >= 100 else np.mean(all_rewards)
             print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}, Best: {best_reward:.2f}")
+
+    plt.figure()  # Create a new figure
+    plt.plot(all_rewards)
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.title('Training Progress')
+    plt.savefig('training_progress.png')  # Save the plot to a file
+    print("Training progress plot saved as 'training_progress.png'")
+    plt.close()  # Close the figure to avoid interference
 
 if __name__ == "__main__":
     train()
