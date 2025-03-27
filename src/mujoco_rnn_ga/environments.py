@@ -33,10 +33,12 @@ class SequentialReachingEnv:
         plant,
         target_duration,
         num_targets,
+        loss_weights,
     ):
         self.plant = plant
         self.target_duration = target_duration
         self.num_targets = num_targets
+        self.loss_weights = loss_weights
         self.logger = None
 
     """
@@ -116,9 +118,9 @@ class SequentialReachingEnv:
 
         target_positions = self.plant.sample_targets(self.num_targets)
         target_durations = truncated_exponential(
-            mu=self.target_duration[0],
-            a=self.target_duration[1],
-            b=self.target_duration[2],
+            mu=self.target_duration["mean"],
+            a=self.target_duration["min"],
+            b=self.target_duration["max"],
             size=self.num_targets,
         )
         target_offset_times = target_durations.cumsum()
@@ -134,7 +136,7 @@ class SequentialReachingEnv:
 
             context, feedback = self.plant.get_obs()
             obs = np.concatenate([context, feedback])
-            action = rnn.step_tau(obs)
+            action = rnn.step(obs)
             self.plant.step(action)
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
@@ -144,9 +146,10 @@ class SequentialReachingEnv:
             entropy = action_entropy(action)
 
             reward = -(
-                euclidean_distance * 0.9
-                + manhattan_distance * 0
-                + energy * entropy * 0.1
+                euclidean_distance * self.loss_weights["euclidean"]
+                + manhattan_distance * self.loss_weights["manhattan"]
+                + energy * entropy * self.loss_weights["energy"]
+                + .001 * np.sum(np.abs(rnn.get_params()))
             )
             total_reward += reward
 
