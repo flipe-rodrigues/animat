@@ -149,7 +149,7 @@ class SequentialReachingEnv:
                 euclidean_distance * self.loss_weights["euclidean"]
                 + manhattan_distance * self.loss_weights["manhattan"]
                 + energy * entropy * self.loss_weights["energy"]
-                + .001 * np.sum(np.abs(rnn.get_params()))
+                + .001 * l1_norm(rnn.get_params())
             )
             total_reward += reward
 
