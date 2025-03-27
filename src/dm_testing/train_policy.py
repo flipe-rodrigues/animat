@@ -37,8 +37,12 @@ class PolicyNetwork:
             h = np.tanh(state @ self.W1 + self.b1)
             y = 1/(1 + np.exp(-(h @ self.W2 + self.b2)))
             
-            # Backward pass
-            dy = (action - y) * R  # Policy gradient
+            # Proper log-probability gradient for continuous actions
+            # Treating policy output as mean of a Gaussian with fixed variance
+            std = 0.1  # Fixed standard deviation
+            log_prob_grad = (action - y) / (std**2)
+            dy = log_prob_grad * R
+            
             dW2 += np.outer(h, dy)
             db2 += dy
             
@@ -76,8 +80,8 @@ def train():
     # Hyperparameters
     policy = PolicyNetwork(input_size, output_size)
     learning_rate = 3e-4
-    num_episodes = 1000
-    batch_size = 16
+    num_episodes = 3000  # Increase from 1000
+    batch_size = 4  
     gamma = 0.99
     
     all_rewards = []
@@ -97,7 +101,7 @@ def train():
             
             # Get action with noise
             action = policy.forward(state)
-            noise = np.random.normal(0, max(0.2 * np.exp(-episode/200), 0.01), size=action.shape)
+            noise = np.random.normal(0, max(0.3 * np.exp(-episode/500), 0.05), size=action.shape)
             action = np.clip(action + noise, 0, 1)
             
             states.append(state)
@@ -126,11 +130,17 @@ def train():
                 R = r + gamma * R
                 returns.insert(0, R)
             returns = np.array(returns)
-            # Normalize returns
-            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-            
-            # Update policy
-            grads = policy.backward(states, actions, returns)
+
+            # Use a baseline for advantage estimation
+            baseline = np.mean(returns)
+            advantages = returns - baseline
+
+            # Normalize advantages
+            if len(advantages) > 1 and advantages.std() > 0:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+            # Update policy (use advantages instead of returns)
+            grads = policy.backward(states, actions, advantages)
             policy.update(grads, learning_rate)
         
         if episode % 10 == 0:
