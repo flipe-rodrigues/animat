@@ -46,7 +46,7 @@ if __name__ == "__main__":
     )
     optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
 
-    num_generations = 1000
+    num_generations = 10000
     fitnesses = []
     for gg in range(num_generations):
         solutions = []
@@ -62,12 +62,10 @@ if __name__ == "__main__":
         if gg % 10 == 0:
             env.evaluate(best_rnn, seed=0, render=True, log=True)
             env.plot()
-        if gg % 100 == 0:
-            file = f"../../models/best_rnn_gen_{gg}_cmaesv2.pkl"
-        else:
-            file = f"../../models/best_rnn_gen_curr_cmaesv2.pkl"
-        with open(file, "wb") as f:
-            pickle.dump(best_rnn, f)
+        if gg % 1000 == 0:
+            file = f"../../models/optimizer_gen_{gg}_cmaesv2.pkl"
+            with open(file, "wb") as f:
+                pickle.dump(optimizer, f)
 
 # %%
 """
