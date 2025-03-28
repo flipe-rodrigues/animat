@@ -245,21 +245,26 @@ class ReachTargetTask(Task):
             physics.named.data.ctrl[actuator] = action[i]
 
     def get_reward(self, physics):
-        # Get current positions
         hand_position = physics.named.data.geom_xpos["hand"]
         target_position = physics.named.data.mocap_pos["target"]
         
-        # Calculate distance to target
         distance = np.linalg.norm(hand_position - target_position)
         
-        # Base reward is negative distance (closer is better)
-        reward = -distance
+        # Exponential reward that gives more gradient when close
+        distance_reward = np.exp(-5 * distance) 
         
-        # Add penalty for excessive muscle activation to encourage efficiency
+        # Directional reward - reward moving in the right direction
+        if hasattr(self, 'prev_distance'):
+            progress_reward = (self.prev_distance - distance) * 3
+        else:
+            progress_reward = 0
+        self.prev_distance = distance
+        
+        # Existing effort penalty
         muscle_activations = [physics.named.data.ctrl[actuator] for actuator in self._actuators]
         effort_penalty = -0.1 * np.sum(np.array(muscle_activations)**2)
         
-        return 10 * reward + effort_penalty
+        return distance_reward + progress_reward + effort_penalty
 
     def should_terminate_episode(self, physics):
         hand_position = physics.named.data.geom_xpos["hand"]

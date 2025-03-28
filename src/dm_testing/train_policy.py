@@ -1,5 +1,5 @@
 import numpy as np
-from dm_testing.arm_env import load
+from dm_testing.arm_env import load, _DEFAULT_TIME_LIMIT  # Import the variable
 from dm_testing.dm_control_test import display_video
 import matplotlib.pyplot as plt
 import os
@@ -70,40 +70,66 @@ def train():
     input_size = sum(np.prod(spec.shape) for spec in obs_spec.values())
     output_size = env.action_spec().shape[0]
     
-    # Hyperparameters
-    policy = PolicyNetwork(input_size, output_size)
-    learning_rate = 3e-4
-    num_episodes = 50
-    batch_size = 16
+    # Hyperparameters - MODIFIED
+    policy = PolicyNetwork(input_size, output_size, hidden_size=256)  # Larger network
+    learning_rate = 5e-4  # Slightly higher learning rate
+    num_episodes = 2000   # Many more episodes
+    batch_size = 32       # Larger batch
     gamma = 0.99
     
+    # For tracking progress
     all_rewards = []
     best_reward = -float('inf')
+    running_avg = []
+    
+    # For saving checkpoints
+    checkpoint_interval = 200  # Save model every 200 episodes
+    
+    # Observation normalization variables
+    obs_running_mean = np.zeros(input_size)
+    obs_running_var = np.ones(input_size)
+    obs_count = 0
     
     for episode in range(num_episodes):
         states, actions, rewards = [], [], []
         time_step = env.reset()
         episode_reward = 0
-        step_counter = 0  # Initialize step counter
+        step_counter = 0
         
         # Only capture frames for the last episode
         frames = [] if episode == num_episodes - 1 else None
         
+        # Modified exploration schedule - decays more slowly
+        noise_scale = max(0.3 * np.exp(-episode/1000), 0.05)
+        
         while not time_step.last():
-            step_counter += 1  # Increment step counter
+            step_counter += 1
             
-            # Flatten all observables except target_position
+            # Normalize observations (helps learning stability)
             state = np.concatenate([
                 obs.flatten() if name != 'target_position' else obs.flatten()[0:3]
                 for name, obs in time_step.observation.items()
             ])
             
-            # Get action with noise
-            action = policy.forward(state)
-            noise = np.random.normal(0, max(0.3 * np.exp(-episode/500), 0.05), size=action.shape)
+            # Update running statistics
+            obs_count += 1
+            delta = state - obs_running_mean
+            obs_running_mean += delta / obs_count
+            delta2 = state - obs_running_mean
+            obs_running_var += delta * delta2
+            
+            # Normalize state
+            if obs_count > 1:
+                normalized_state = (state - obs_running_mean) / (np.sqrt(obs_running_var / (obs_count - 1)) + 1e-8)
+            else:
+                normalized_state = state
+            
+            # Get action with adjusted noise
+            action = policy.forward(normalized_state)
+            noise = np.random.normal(0, noise_scale, size=action.shape)
             action = np.clip(action + noise, 0, 1)
 
-            states.append(state)
+            states.append(normalized_state)
             actions.append(action)
 
             time_step = env.step(action)
@@ -114,25 +140,22 @@ def train():
             if frames is not None and (step_counter == 1 or step_counter % 10 == 0):
                 frames.append(env.physics.render(camera_id=-1, width=640, height=480))
         
-        if time_step.last():
-            print(f"Episode {episode} ended. Reward: {episode_reward:.2f}, Time: {env.physics.data.time:.2f} seconds")
-            if frames is not None:
-                print(f"Number of frames captured: {len(frames)}")
-        
-        # Check if this is a new best episode (just track the reward, no frames)
-        if episode_reward > best_reward:
-            best_reward = episode_reward
-            print(f"New best! Episode {episode}, Reward: {episode_reward:.2f}")
-        
-        # Save the last episode frames
-        if episode == num_episodes - 1 and frames:  # Last episode
-            display_video(frames, filename='final_animation.gif', framerate=30)
-            print(f"Final episode animation saved. Episode {episode}, Reward: {episode_reward:.2f}")
-        
+        # Print more frequently to monitor progress
+        if episode % 10 == 0:
+            print(f"Episode {episode}/{num_episodes} ended. Reward: {episode_reward:.2f}")
+            
         all_rewards.append(episode_reward)
         
-        # Update policy
-        if (episode + 1) % batch_size == 0:
+        # Calculate running average reward
+        if episode >= 100:
+            avg_reward = np.mean(all_rewards[-100:])
+            running_avg.append(avg_reward)
+            
+            if episode % 100 == 0:
+                print(f"Episode {episode}, Avg Reward (last 100): {avg_reward:.2f}, Best: {best_reward:.2f}")
+        
+        # Update policy more frequently
+        if len(states) > 0:  # Make sure we have data
             # Calculate returns
             returns = []
             R = 0
@@ -140,16 +163,29 @@ def train():
                 R = r + gamma * R
                 returns.insert(0, R)
             returns = np.array(returns, dtype=np.float32)
-            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-
+            
+            # Normalize returns (helps with learning stability)
+            if len(returns) > 1:  # Need at least 2 values for std to be meaningful
+                returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+            
             # Update policy
             grads = policy.backward(states, actions, returns)
             policy.update(grads, learning_rate)
         
-        if episode % 10 == 0:
-            avg_reward = np.mean(all_rewards[-100:]) if len(all_rewards) >= 100 else np.mean(all_rewards)
-            print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}, Best: {best_reward:.2f}")
-
+        # Save the last episode frames
+        if episode == num_episodes - 1 and frames:  # Last episode
+            display_video(frames, filename='final_animation.gif', framerate=30)
+            print(f"Final episode animation saved. Episode {episode}, Reward: {episode_reward:.2f}")
+        
+        # Check if this is a new best episode (just track the reward, no frames)
+        if episode_reward > best_reward:
+            best_reward = episode_reward
+            print(f"New best! Episode {episode}, Reward: {episode_reward:.2f}")
+        
+        # Save checkpoints
+        if episode % checkpoint_interval == 0:
+            print(f"Checkpoint saved at episode {episode}.")
+        
     plt.figure()  # Create a new figure
     plt.plot(all_rewards)
     plt.xlabel('Episode')
