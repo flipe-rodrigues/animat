@@ -48,7 +48,7 @@ if os.environ.get('COLAB_NOTEBOOK_TEST', False):
   # We skip video generation during tests, as it is quite expensive.
   display_video = lambda *args, **kwargs: None
 else:
-  def display_video(frames, framerate=30):
+  def display_video(frames, filename, framerate=30):
     height, width, _ = frames[0].shape
     dpi = 70
     orig_backend = matplotlib.get_backend()
@@ -65,7 +65,7 @@ else:
     interval = 1000/framerate
     anim = animation.FuncAnimation(fig=fig, func=update, frames=frames,
                                    interval=interval, blit=True, repeat=False)
-    anim.save("animation.gif", writer="pillow", fps=framerate)
+    anim.save(filename, writer="pillow", fps=framerate)
     print("Animation saved as animation.gif")
 
 # Seed numpy's global RNG so that cell outputs are deterministic. We also try to
@@ -77,30 +77,48 @@ arm_model = mjcf.from_path("../mujoco/arm_model.xml")
 
 # Wrap the MJCF model in a composer.Entity
 class ArmEntity(Entity):
-    
     def _build(self, model):
+        """Define the structure of the entity."""
         # Set the MJCF root directly
         self._model = model
+        
 
     def _build_observables(self):
-        return CreatureObservables(self)
-    
+        """Use CreatureObservables to define observables for the arm entity."""
+        #print("Building observables for ArmEntity")
+        observables = CreatureObservables(self)
+
+        # Debug: List all observable attributes
+        observable_names = [
+            attr for attr in dir(observables)
+            if isinstance(getattr(observables, attr), observable.Observable)
+        ]
+        #print(f"Registered observables: {observable_names}")
+
+        return observables
+
     @property
     def mjcf_model(self):
         return self._model
-    
-    @property
-    def actuators(self):
-        return tuple(self._model.find_all('actuator'))
 
 # Add simple observable features for joint angles and velocities.
 class CreatureObservables(Observables):
+    def __init__(self, entity):
+        super().__init__(entity)
+        #print("Initializing CreatureObservables")
+        # Enable all observables by default
+        for name, observable in self.as_dict().items():
+            observable.enabled = True
+
+    # Add target position as an observable
     @composer.observable
-    def hand_position(self):
-        return observable.MJCFFeature('xpos', self._entity.mjcf_model.find('geom', 'hand'))
-    
+    def target_position(self):
+        print("Defining observable: target_position")
+        return observable.MJCFFeature('mocap_pos', self._entity.mjcf_model.find('body', 'target'))
+
     @composer.observable
     def deltoid_length(self):
+        print("Defining observable: deltoid_length")
         return observable.MJCFFeature('sensordata', self._entity.mjcf_model.find('sensor', 'deltoid_length'))
 
     @composer.observable
@@ -244,15 +262,12 @@ class ReachTargetTask(Task):
         return 10 * reward + effort_penalty
 
     def should_terminate_episode(self, physics):
-        """Terminate the episode if the hand is close enough to the target."""
         hand_position = physics.named.data.geom_xpos["hand"]
         target_position = physics.named.data.mocap_pos["target"]
-        
-        # Calculate the distance between the hand and the target
         distance = np.linalg.norm(hand_position - target_position)
         
-        # Terminate if the distance is below a threshold
-        return distance < 0.03  # Threshold of 3 cm
+        #print(f"Checking termination: distance={distance:.4f}, terminate={distance < 0.1}")
+        return distance < 0.1
 
 
 

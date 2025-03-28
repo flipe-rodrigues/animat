@@ -3,6 +3,9 @@ from dm_testing.arm_env import load
 from dm_testing.dm_control_test import display_video
 import matplotlib.pyplot as plt
 import os
+import importlib
+import dm_testing.arm_env
+importlib.reload(dm_testing.arm_env)
 
 
 class PolicyNetwork:
@@ -64,8 +67,7 @@ def train():
     
     # Setup
     obs_spec = env.observation_spec()
-    input_size = sum(spec.shape[0] if len(spec.shape) > 0 else 1 
-                    for spec in obs_spec.values())
+    input_size = sum(np.prod(spec.shape) for spec in obs_spec.values())
     output_size = env.action_spec().shape[0]
     
     # Hyperparameters
@@ -82,40 +84,50 @@ def train():
         states, actions, rewards = [], [], []
         time_step = env.reset()
         episode_reward = 0
+        step_counter = 0  # Initialize step counter
         
-        # Record video for first episode and new best episodes
-        record_video = episode == 0 or (len(all_rewards) > 0 and episode_reward > best_reward)
-        frames = [] if record_video else None
+        # Only capture frames for the last episode
+        frames = [] if episode == num_episodes - 1 else None
         
         while not time_step.last():
-            state = np.concatenate([obs.flatten() for obs in time_step.observation.values()])
+            step_counter += 1  # Increment step counter
+            
+            # Flatten all observables except target_position
+            state = np.concatenate([
+                obs.flatten() if name != 'target_position' else obs.flatten()[0:3]
+                for name, obs in time_step.observation.items()
+            ])
             
             # Get action with noise
             action = policy.forward(state)
             noise = np.random.normal(0, max(0.3 * np.exp(-episode/500), 0.05), size=action.shape)
             action = np.clip(action + noise, 0, 1)
-            
+
             states.append(state)
             actions.append(action)
-            
+
             time_step = env.step(action)
             rewards.append(time_step.reward)
             episode_reward += time_step.reward
             
-            # Debugging: Print hand and target positions
-            hand_position = time_step.observation['hand_position']
-            target_position = time_step.observation['target_position']
-            print(f"Step: Hand Position: {hand_position}, Target Position: {target_position}")
-            distance = np.linalg.norm(hand_position - target_position)
-            print(f"Distance: {distance}")
-            
-            if frames is not None:
-                frames.append(env.physics.render())
+            # Capture frames only for the last episode
+            if frames is not None and (step_counter == 1 or step_counter % 10 == 0):
+                frames.append(env.physics.render(camera_id=-1, width=640, height=480))
         
-        if frames is not None and episode_reward > best_reward:
+        if time_step.last():
+            print(f"Episode {episode} ended. Reward: {episode_reward:.2f}, Time: {env.physics.data.time:.2f} seconds")
+            if frames is not None:
+                print(f"Number of frames captured: {len(frames)}")
+        
+        # Check if this is a new best episode (just track the reward, no frames)
+        if episode_reward > best_reward:
             best_reward = episode_reward
-            display_video(frames, framerate=30)
             print(f"New best! Episode {episode}, Reward: {episode_reward:.2f}")
+        
+        # Save the last episode frames
+        if episode == num_episodes - 1 and frames:  # Last episode
+            display_video(frames, filename='final_animation.gif', framerate=30)
+            print(f"Final episode animation saved. Episode {episode}, Reward: {episode_reward:.2f}")
         
         all_rewards.append(episode_reward)
         
@@ -130,7 +142,7 @@ def train():
             returns = np.array(returns, dtype=np.float32)
             returns = (returns - returns.mean()) / (returns.std() + 1e-8)
 
-            # Update policy (use advantages instead of returns)
+            # Update policy
             grads = policy.backward(states, actions, returns)
             policy.update(grads, learning_rate)
         
@@ -149,3 +161,4 @@ def train():
 
 if __name__ == "__main__":
     train()
+    print(f"Time limit for the environment: {_DEFAULT_TIME_LIMIT} seconds")
