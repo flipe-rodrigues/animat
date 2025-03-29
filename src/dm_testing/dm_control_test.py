@@ -174,6 +174,9 @@ class ReachTargetTask(Task):
         self._min_activation = 0.0
         self._max_activation = 1.0
         
+        # Initialize prev_distance
+        self.prev_distance = None
+        
         # Get absolute path to mujoco directory
         mj_dir = os.path.abspath(os.path.join(
             os.path.dirname(__file__), 
@@ -214,6 +217,7 @@ class ReachTargetTask(Task):
         return self._arm_entity
 
     def initialize_episode(self, physics, random_state):
+        """Sets the state of the environment at the start of each episode."""
         # Reset the simulation state
         physics.reset()
 
@@ -228,6 +232,11 @@ class ReachTargetTask(Task):
         # Initialize muscles to a relaxed state
         for actuator in self._actuators:
             physics.named.data.ctrl[actuator] = self._min_activation
+        
+        # Set initial distance for reward calculation
+        hand_position = physics.named.data.geom_xpos['hand']
+        target_position = physics.named.data.mocap_pos['target']
+        self.prev_distance = np.linalg.norm(hand_position - target_position)
 
     def before_step(self, physics, action, random_state):
         """Process the action before applying it to the physics simulation.
@@ -245,26 +254,33 @@ class ReachTargetTask(Task):
             physics.named.data.ctrl[actuator] = action[i]
 
     def get_reward(self, physics):
-        hand_position = physics.named.data.geom_xpos["hand"]
+        '''
         target_position = physics.named.data.mocap_pos["target"]
+        current_distance = np.linalg.norm(hand_position - target_position)
         
-        distance = np.linalg.norm(hand_position - target_position)
+        # Distance component (negative, so smaller is better)
+        distance_reward = -current_distance * 5.0
         
-        # Exponential reward that gives more gradient when close
-        distance_reward = np.exp(-5 * distance) 
+        # Progress component (positive when getting closer)
+        progress_reward = (self.prev_distance - current_distance) * 10.0
+        self.prev_distance = current_distance
         
-        # Directional reward - reward moving in the right direction
-        if hasattr(self, 'prev_distance'):
-            progress_reward = (self.prev_distance - distance) * 3
-        else:
-            progress_reward = 0
-        self.prev_distance = distance
+        # Energy efficiency component (penalize high activations)
+        energy_penalty = -0.1 * np.sum(physics.data.act)
         
-        # Existing effort penalty
-        muscle_activations = [physics.named.data.ctrl[actuator] for actuator in self._actuators]
-        effort_penalty = -0.1 * np.sum(np.array(muscle_activations)**2)
+        # Combine components
+        reward = distance_reward + progress_reward + energy_penalty
         
-        return distance_reward + progress_reward + effort_penalty
+        # Add sparse bonus for being very close
+        if current_distance < 0.2:
+            reward += (0.2 - current_distance) * 50.0
+            
+        return reward'''
+        
+        hand_position = physics.named.data.geom_xpos["hand"]
+        fixed_target = np.array([0.3, 0.0, 0.3])  # A known reachable position
+        distance = np.linalg.norm(hand_position - fixed_target)
+        return -distance  # Simple distance-only reward
 
     def should_terminate_episode(self, physics):
         hand_position = physics.named.data.geom_xpos["hand"]
@@ -272,7 +288,7 @@ class ReachTargetTask(Task):
         distance = np.linalg.norm(hand_position - target_position)
         
         #print(f"Checking termination: distance={distance:.4f}, terminate={distance < 0.1}")
-        return distance < 0.1
+        return distance < 0.05
 
 
 

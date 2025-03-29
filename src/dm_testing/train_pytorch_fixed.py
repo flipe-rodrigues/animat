@@ -67,13 +67,37 @@ class DMControlGymnasiumWrapper(gym.Env):
         self.episode_reward = 0
     
     def reset(self, *, seed=None, options=None):
-        """Reset the environment."""
+        """Reset the environment and randomize target."""
         if seed is not None:
             np.random.seed(seed)
         
         time_step = self.env.reset()
         self.steps = 0
         self.episode_reward = 0
+        
+        # FORCE TARGET RANDOMIZATION
+        # Get access to reachable positions
+        task = self.env.task
+        
+        if hasattr(task, '_reachable_positions') and len(task._reachable_positions) > 0:
+            # Explicitly select a random target position
+            num_positions = len(task._reachable_positions)
+            target_idx = np.random.randint(0, num_positions)
+            new_target_position = task._reachable_positions[target_idx]
+            
+            # Print old and new target positions 
+            old_target = self.env.physics.named.data.mocap_pos["target"].copy()
+            print(f"Changing target from {old_target} to {new_target_position}")
+            
+            # Apply the new target position to the MuJoCo mocap body
+            self.env.physics.named.data.mocap_pos["target"] = new_target_position
+            
+            # Update internal target position in the task
+            if hasattr(task, 'prev_distance'):
+                hand_position = self.env.physics.named.data.geom_xpos["hand"]
+                task.prev_distance = np.linalg.norm(hand_position - new_target_position)
+        else:
+            print("WARNING: Could not access reachable_positions to randomize target")
         
         observation = self._process_observation(time_step.observation)
         return observation, {}
@@ -82,6 +106,15 @@ class DMControlGymnasiumWrapper(gym.Env):
         """Take a step in the environment."""
         time_step = self.env.step(action)
         self.steps += 1
+        
+        # Print hand and target positions to verify 2D movement
+        hand_position = self.env.physics.named.data.geom_xpos['hand']
+        target_position = self.env.physics.named.data.mocap_pos['target']
+        if self.steps % 100 == 0:  # Print every 100 steps to avoid flooding console
+            print(f"Step {self.steps}:")
+            print(f"  Hand position: {hand_position}")
+            print(f"  Target position: {target_position}")
+            print(f"  Y-values: hand={hand_position[1]:.4f}, target={target_position[1]:.4f}")
         
         observation = self._process_observation(time_step.observation)
         reward = float(time_step.reward)
