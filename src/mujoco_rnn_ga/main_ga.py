@@ -126,19 +126,22 @@ if __name__ == "__main__":
         input_size=3 + reacher.num_sensors,
         hidden_size=25,
         output_size=reacher.num_actuators,
-        activation=tanh,
+        activation=softpus,
         alpha=reacher.model.opt.timestep / 10e-3,
     )
     env = SequentialReachingEnv(
-        plant=reacher, target_duration=(3, 2, 6), num_targets=10
+        plant=reacher,
+        target_duration={"mean": 3, "min": 1, "max": 6},
+        num_targets=10,
+        loss_weights={"euclidean": 1, "manhattan": 0, "energy": 0},
     )
-    # best_rnn = evolve(
-    #     env=env,
-    #     rnn=rnn,
-    #     num_individuals=100,
-    #     num_generations=1000,
-    #     mutation_rate=0.05,
-    # )
+    best_rnn = evolve(
+        env=env,
+        rnn=rnn,
+        num_individuals=100,
+        num_generations=1000,
+        mutation_rate=0.05,
+    )
 
 # %%
 """

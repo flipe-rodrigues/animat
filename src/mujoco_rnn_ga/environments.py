@@ -55,7 +55,8 @@ class SequentialReachingEnv:
         self,
         time,
         sensors,
-        target,
+        target_position,
+        hand_position,
         manhattan_distance,
         euclidean_distance,
         energy,
@@ -80,7 +81,8 @@ class SequentialReachingEnv:
                 "biceps_frc": [],
                 "triceps_frc": [],
             }
-            self.logger["target"] = []
+            self.logger["target_position"] = []
+            self.logger["hand_position"] = []
             self.logger["manhattan_distance"] = []
             self.logger["euclidean_distance"] = []
             self.logger["energy"] = []
@@ -91,7 +93,8 @@ class SequentialReachingEnv:
         self.logger["time"].append(time)
         for i, key in enumerate(self.logger["sensors"].keys()):
             self.logger["sensors"][key].append(sensors[i])
-        self.logger["target"].append(target)
+        self.logger["target_position"].append(target_position)
+        self.logger["hand_position"].append(hand_position)
         self.logger["manhattan_distance"].append(manhattan_distance)
         self.logger["euclidean_distance"].append(euclidean_distance)
         self.logger["energy"].append(energy)
@@ -149,7 +152,7 @@ class SequentialReachingEnv:
                 euclidean_distance * self.loss_weights["euclidean"]
                 + manhattan_distance * self.loss_weights["manhattan"]
                 + energy * entropy * self.loss_weights["energy"]
-                + .001 * l1_norm(rnn.get_params())
+                + 0.001 * l1_norm(rnn.get_params())
             )
             total_reward += reward
 
@@ -157,7 +160,8 @@ class SequentialReachingEnv:
                 self.log(
                     time=self.plant.data.time,
                     sensors=feedback,
-                    target=target_position,
+                    target_position=target_position,
+                    hand_position=hand_position,
                     manhattan_distance=manhattan_distance,
                     euclidean_distance=euclidean_distance,
                     energy=energy,
@@ -190,15 +194,21 @@ class SequentialReachingEnv:
 
         _, axes = plt.subplots(3, 2, figsize=(10, 10))
 
-        # Targets (NOT WORKING BECAUSE NON-CONSTANT TARGET DURATIONS!!!)
-        # for t in range(0, int(self.logger["time"][-1]), 3):
-        #     axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-    
+        # Targets
+        target_onset_idcs = np.where(
+            np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
+        )[0]
+        target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
+        target_onset_times = np.array(
+            [log["time"][target_onset_idx] for target_onset_idx in target_onset_idcs]
+        )
+        for t in target_onset_times:
+            axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+            axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
 
         linewidth = 1
 
@@ -323,5 +333,41 @@ class SequentialReachingEnv:
 
         plt.tight_layout()
         plt.show()
+
+        # Hand Velocity
+        plt.figure(figsize=(10, 1))
+        # Annotate target change times with vertical lines
+        for idx in target_onset_idcs:
+            plt.axvline(
+                x=log["time"][idx],
+                color="blue",
+                linestyle="--",
+                linewidth=0.5,
+                label="Target Change" if idx == target_onset_idcs[0] else None,
+            )
+        hand_positions = np.array(log["hand_position"])
+        hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
+        time = np.array(
+            log["time"][:-1]
+        )  # Exclude the last time step to match velocity array length
+        plt.plot(
+            time,
+            hand_velocities,
+            linewidth=linewidth,
+            label="Hand Velocity",
+            color="black",
+        )
+        plt.xlabel("Time (s)")
+        plt.ylabel("Hand velocity (a.u.)")
+        ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
+        ax_right.plot(
+            log["time"][:-1],
+            log["euclidean_distance"][:-1],
+            linewidth=linewidth,
+            label="Euclidean Distance",
+            color="red",
+        )
+        ax_right.set_ylabel("Euclidean Distance", color="red")
+        ax_right.tick_params(axis="y", labelcolor="red")
 
         self.logger = None

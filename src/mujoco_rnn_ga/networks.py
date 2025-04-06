@@ -37,12 +37,6 @@ class RNN:
         self.h = np.zeros(self.hidden_size)
         self.out = np.zeros(self.output_size)
 
-    # def step(self, obs):
-    #     """Compute one RNN step"""
-    #     self.h = self.activation(self.W_in @ obs + self.W_h @ self.h + self.b_h)
-    #     output = logistic(self.W_out @ self.h + self.b_out)
-    #     return output
-
     def step(self, obs):
         """Compute one RNN step"""
         self.h = (1 - self.alpha) * self.h + self.alpha * self.activation(

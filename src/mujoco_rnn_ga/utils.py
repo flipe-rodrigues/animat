@@ -52,6 +52,10 @@ def relu(x):
     return np.maximum(0, x)
 
 
+def softpus(x):
+    return np.log(1 + np.exp(x))
+
+
 def xavier_init(n_in, n_out):
     stddev = np.sqrt(1 / (n_in + n_out))
     return np.random.randn(n_out, n_in) * stddev
