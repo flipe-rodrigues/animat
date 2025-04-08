@@ -10,14 +10,12 @@
 """
 import pickle
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 from plants import SequentialReacher, SequentialReacherMJX
 from environments import SequentialReachingEnv
 from networks import RNN
 from cmaes import CMA
 from utils import *
 import numpy as np
-import seaborn as sns
 
 # %%
 """
@@ -30,10 +28,10 @@ import seaborn as sns
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
-    reacher = SequentialReacherMJX(plant_xml_file="arm_model.xml")
+    reacher = SequentialReacher(plant_xml_file="arm_model.xml")
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
-        hidden_size=25,
+        hidden_size=100,
         output_size=reacher.num_actuators,
         activation=tanh,
         alpha=reacher.model.opt.timestep / 10e-3,
@@ -42,7 +40,13 @@ if __name__ == "__main__":
         plant=reacher,
         target_duration={"mean": 3, "min": 1, "max": 6},
         num_targets=10,
-        loss_weights={"euclidean": 1, "manhattan": 0, "energy": 0},
+        loss_weights={
+            "euclidean": 1,
+            "manhattan": 0,
+            "energy": 0,
+            "ridge": 0,
+            "lasso": 0,
+        },
     )
     optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
 

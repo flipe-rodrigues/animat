@@ -1,3 +1,5 @@
+import jax
+from jax import numpy as jp
 import time
 import pickle
 import mujoco
@@ -93,7 +95,6 @@ class SequentialReacher:
 class SequentialReacherMJX:
     def __init__(self, plant_xml_file="arm_model.xml"):
         """Initialize Mujoco simulation"""
-
         mj_dir = os.path.join(get_root_path(), "mujoco")
         xml_path = os.path.join(mj_dir, plant_xml_file)
         self.mj_model = mujoco.MjModel.from_xml_path(xml_path)
@@ -125,21 +126,18 @@ class SequentialReacherMJX:
         return self.reachable_positions.sample(num_samples).values
 
     def update_target(self, position):
-        self.data.mocap_pos = position
-        mujoco.mj_forward(self.model, self.data)
+        self.target_position = position
 
     def reset(self):
         """Reset limb state"""
-        # self.data = mjx.make_data(self.mj_model)
         self.data = mjx.make_data(self.mj_model)
         mjx.forward(self.model, self.data)
 
     def get_obs(self):
         """Return joint angles, velocities, and end-effector position"""
-        target_position = self.data.mocap_pos[0].copy()
         sensor_data = self.data.sensordata.copy()
         norm_target_position = zscore(
-            target_position,
+            self.target_position,
             self.target_stats["mean"].values,
             self.target_stats["std"].values,
         )
@@ -155,8 +153,8 @@ class SequentialReacherMJX:
 
     def step(self, muscle_activations):
         """Apply torques and step simulation"""
-        self.data.ctrl[:] = muscle_activations
-        mujoco.mj_step(self.model, self.data)
+        self.data = self.data.replace(ctrl=muscle_activations)
+        mjx.step(self.model, self.data)
 
     def render(self):
         if self.viewer is None:

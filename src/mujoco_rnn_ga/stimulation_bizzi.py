@@ -1,0 +1,244 @@
+# %%
+"""
+.####.##.....##.########...#######..########..########..######.
+..##..###...###.##.....##.##.....##.##.....##....##....##....##
+..##..####.####.##.....##.##.....##.##.....##....##....##......
+..##..##.###.##.########..##.....##.########.....##.....######.
+..##..##.....##.##........##.....##.##...##......##..........##
+..##..##.....##.##........##.....##.##....##.....##....##....##
+.####.##.....##.##.........#######..##.....##....##.....######.
+"""
+import pickle
+import matplotlib.pyplot as plt
+from plants import SequentialReacher
+from environments import SequentialReachingEnv
+from networks import RNN
+from utils import *
+import numpy as np
+import seaborn as sns
+
+# %%
+"""
+.##........#######.....###....########.
+.##.......##.....##...##.##...##.....##
+.##.......##.....##..##...##..##.....##
+.##.......##.....##.##.....##.##.....##
+.##.......##.....##.#########.##.....##
+.##.......##.....##.##.....##.##.....##
+.########..#######..##.....##.########.
+"""
+reacher = SequentialReacher(plant_xml_file="arm_model.xml")
+rnn = RNN(
+    input_size=3 + reacher.num_sensors,
+    hidden_size=25,
+    output_size=reacher.num_actuators,
+    activation=tanh,
+    alpha=1,  # reacher.model.opt.timestep / 10e-3,
+)
+env = SequentialReachingEnv(
+    plant=reacher,
+    target_duration={"mean": 3, "min": 1, "max": 6},
+    num_targets=10,
+    loss_weights={
+        "euclidean": 1,
+        "manhattan": 0,
+        "energy": 0,
+        "ridge": 0.001,
+        "lasso": 0,
+    },
+)
+models_dir = "../../models"
+gen_idx = 9000  # Specify the generation index you want to load
+model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
+with open(os.path.join(models_dir, model_file), "rb") as f:
+    optimizer = pickle.load(f)
+best_rnn = rnn.from_params(optimizer.mean)
+
+# %%
+"""
+.########..########.##....##.########..########.########.
+.##.....##.##.......###...##.##.....##.##.......##.....##
+.##.....##.##.......####..##.##.....##.##.......##.....##
+.########..######...##.##.##.##.....##.######...########.
+.##...##...##.......##..####.##.....##.##.......##...##..
+.##....##..##.......##...###.##.....##.##.......##....##.
+.##.....##.########.##....##.########..########.##.....##
+"""
+env.evaluate(best_rnn, seed=0, render=False, log=True)
+env.plot()
+
+# %%
+"""
+.########..####..######...######..########..######..########
+.##.....##..##..##....##.##....##.##.......##....##....##...
+.##.....##..##..##.......##.......##.......##..........##...
+.##.....##..##...######...######..######...##..........##...
+.##.....##..##........##.......##.##.......##..........##...
+.##.....##..##..##....##.##....##.##.......##....##....##...
+.########..####..######...######..########..######.....##...
+"""
+
+# Extract weights and biases from the RNN
+weights_input = best_rnn.W_in
+weights_hidden = best_rnn.W_h
+weights_output = best_rnn.W_out.T
+bias_hidden = best_rnn.b_h
+bias_output = best_rnn.b_out
+
+# Combine all weights and biases into a single figure
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+
+# Plot input weights
+sns.heatmap(weights_input, cmap="viridis", cbar=True, ax=axes[0, 0])
+axes[0, 0].set_title("Input Weights")
+axes[0, 0].set_xlabel("Input Features")
+axes[0, 0].set_ylabel("Hidden Units")
+
+# Plot hidden weights
+sns.heatmap(weights_hidden, cmap="viridis", cbar=True, ax=axes[0, 1])
+axes[0, 1].set_title("Hidden Weights")
+axes[0, 1].set_xlabel("Hidden Units")
+axes[0, 1].set_ylabel("Hidden Units")
+
+# Plot output weights
+sns.heatmap(weights_output, cmap="viridis", cbar=True, ax=axes[0, 2])
+axes[0, 2].set_title("Output Weights")
+axes[0, 2].set_xlabel("Hidden Units")
+axes[0, 2].set_ylabel("Output Units")
+
+# Plot hidden biases
+sns.heatmap(
+    bias_hidden.reshape(1, -1), cmap="viridis", cbar=True, annot=False, ax=axes[1, 1]
+)
+axes[1, 1].set_title("Hidden Biases")
+axes[1, 1].set_xlabel("Hidden Units")
+axes[1, 1].set_yticks([])
+
+# Plot output biases
+sns.heatmap(
+    bias_output.reshape(1, -1), cmap="viridis", cbar=True, annot=False, ax=axes[1, 2]
+)
+axes[1, 2].set_title("Output Biases")
+axes[1, 2].set_xlabel("Output Units")
+axes[1, 2].set_yticks([])
+
+# Remove the last unused subplot
+axes[1, 0].axis("off")
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
+
+# %%
+"""
+..######..##.......##.....##..######..########.########.########.
+.##....##.##.......##.....##.##....##....##....##.......##.....##
+.##.......##.......##.....##.##..........##....##.......##.....##
+.##.......##.......##.....##..######.....##....######...########.
+.##.......##.......##.....##.......##....##....##.......##...##..
+.##....##.##.......##.....##.##....##....##....##.......##....##.
+..######..########..#######...######.....##....########.##.....##
+"""
+
+# Calculate the total absolute output weights for each hidden unit
+total_abs_output_weights = np.sum(np.abs(weights_output), axis=1)
+
+# Plot the distribution of total absolute output weights
+plt.figure(figsize=(10, 6))
+sns.histplot(total_abs_output_weights, kde=True, bins=20, color="blue")
+plt.title("Distribution of Total Absolute Output Weights for Each Hidden Unit")
+plt.xlabel("Total Absolute Output Weights")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+
+# Calculate the total absolute sensory weights for each hidden unit
+total_abs_input_weights = np.sum(np.abs(weights_input), axis=1)
+
+# Plot the distribution of total absolute sensory weights
+plt.figure(figsize=(10, 6))
+sns.histplot(total_abs_input_weights, kde=True, bins=20, color="green")
+plt.title("Distribution of Total Absolute Sensory Weights for Each Hidden Unit")
+plt.xlabel("Total Absolute Sensory Weights")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+
+total_abs_hidden_weights = np.sum(np.abs(weights_hidden), axis=1)
+
+# Plot the distribution of total absolute hidden weights
+plt.figure(figsize=(10, 6))
+sns.histplot(total_abs_hidden_weights, kde=True, bins=20, color="orange")
+plt.title("Distribution of Total Absolute Hidden Weights for Each Hidden Unit")
+plt.xlabel("Total Absolute Hidden Weights")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.show()
+
+
+# %%
+"""
+.......##..#######..####.##....##.########
+.......##.##.....##..##..###...##....##...
+.......##.##.....##..##..####..##....##...
+.......##.##.....##..##..##.##.##....##...
+.##....##.##.....##..##..##..####....##...
+.##....##.##.....##..##..##...###....##...
+..######...#######..####.##....##....##...
+"""
+
+# Create a 2D joint distribution plot of total sensory and total output weights
+plt.figure(figsize=(10, 8))
+joint_plot = sns.jointplot(
+    x=total_abs_input_weights,
+    y=total_abs_output_weights,
+    kind="scatter",
+    cmap="viridis",
+    marginal_kws=dict(bins=20, fill=True),
+)
+
+# Overlay the index of each neuron as text
+for i, (x, y) in enumerate(zip(total_abs_input_weights, total_abs_output_weights)):
+    joint_plot.ax_joint.text(
+        x, y + 0.1, str(i), fontsize=8, color="black", ha="center", va="center"
+    )
+
+plt.suptitle("2D Joint Distribution of Total Input and Output Weights", y=1.02)
+joint_plot.set_axis_labels(
+    "Total Absolute Input Weights", "Total Absolute Output Weights"
+)
+plt.show()
+
+# Create a 2D joint distribution plot of total sensory and total output weights
+plt.figure(figsize=(10, 8))
+joint_plot = sns.jointplot(
+    x=total_abs_hidden_weights,
+    y=total_abs_output_weights,
+    kind="scatter",
+    cmap="viridis",
+    marginal_kws=dict(bins=20, fill=True),
+)
+
+# Overlay the index of each neuron as text
+for i, (x, y) in enumerate(zip(total_abs_hidden_weights, total_abs_output_weights)):
+    joint_plot.ax_joint.text(
+        x, y + 0.1, str(i), fontsize=8, color="black", ha="center", va="center"
+    )
+
+plt.suptitle("2D Joint Distribution of Total Hidden and Output Weights", y=1.02)
+joint_plot.set_axis_labels(
+    "Total Absolute Hidden Weights", "Total Absolute Output Weights"
+)
+plt.show()
+
+# %%
+"""
+..######..########.####.##.....##.##.....##.##..........###....########.########
+.##....##....##.....##..###...###.##.....##.##.........##.##......##....##......
+.##..........##.....##..####.####.##.....##.##........##...##.....##....##......
+..######.....##.....##..##.###.##.##.....##.##.......##.....##....##....######..
+.......##....##.....##..##.....##.##.....##.##.......#########....##....##......
+.##....##....##.....##..##.....##.##.....##.##.......##.....##....##....##......
+..######.....##....####.##.....##..#######..########.##.....##....##....########
+"""
+env.stimulate(best_rnn, units=np.array([23]), seed=0, render=True)

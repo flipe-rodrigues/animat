@@ -152,7 +152,8 @@ class SequentialReachingEnv:
                 euclidean_distance * self.loss_weights["euclidean"]
                 + manhattan_distance * self.loss_weights["manhattan"]
                 + energy * entropy * self.loss_weights["energy"]
-                + 0.001 * l1_norm(rnn.get_params())
+                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
+                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
             )
             total_reward += reward
 
@@ -178,6 +179,39 @@ class SequentialReachingEnv:
         self.plant.close()
 
         return total_reward / trial_duration
+
+    """
+    ..######..########.####.##.....##.##.....##.##..........###....########.########
+    .##....##....##.....##..###...###.##.....##.##.........##.##......##....##......
+    .##..........##.....##..####.####.##.....##.##........##...##.....##....##......
+    ..######.....##.....##..##.###.##.##.....##.##.......##.....##....##....######..
+    .......##....##.....##..##.....##.##.....##.##.......#########....##....##......
+    .##....##....##.....##..##.....##.##.....##.##.......##.....##....##....##......
+    ..######.....##....####.##.....##..#######..########.##.....##....##....########
+    """
+
+    def stimulate(self, rnn, units, seed=0, render=False):
+        """Evaluate fitness of a given RNN policy"""
+        np.random.seed(seed)
+
+        rnn.init_state()
+        self.plant.reset()
+
+        if render:
+            self.plant.render()
+            
+        while self.plant.viewer.is_running():
+            if render:
+                self.plant.render()
+
+            context, feedback = self.plant.get_obs()
+            obs = np.concatenate([context * 0, feedback])
+            if self.plant.data.time > 3:
+                rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
+            action = rnn.step(obs)
+            self.plant.step(action)
+
+        self.plant.close()
 
     """
     .########..##........#######..########

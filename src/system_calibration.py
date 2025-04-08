@@ -10,9 +10,9 @@
 """
 import os
 import mujoco
-import mujoco.viewer
 import numpy as np
 import pandas as pd
+from skimage import measure
 import matplotlib.pyplot as plt
 
 # %%
@@ -34,7 +34,7 @@ data = mujoco.MjData(model)
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 360  # seconds
+dur2run = 3600  # seconds
 time_data = []
 hand_position_data = {
     "x": [],
@@ -221,27 +221,124 @@ print(target_stats_df)
 .##.....##.########.##.....##..######..##.....##
 """
 x, y = hand_position_data["x"], hand_position_data["z"]
-counts2d, x_edges, y_edges = np.histogram2d(x, y, bins=100)
+x_min, x_max = min(x), max(x)
+x_min = x_min - 0.05 * (x_max - x_min)
+x_max = x_max + 0.05 * (x_max - x_min)
+y_min, y_max = min(y), max(y)
+y_min = y_min - 0.05 * (y_max - y_min)
+y_max = y_max + 0.05 * (y_max - y_min)
+counts2d, x_edges, y_edges = np.histogram2d(
+    x,
+    y,
+    bins=500,
+    range=[
+        [x_min, x_max],
+        [y_min, y_max],
+    ],
+)
 
 plt.figure()
 plt.imshow(
     counts2d, extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]), origin="lower"
 )
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
 plt.show()
 
-x_centers = (x_edges[:-1] + x_edges[1:]) / 2
-y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-nonzero_idcs = np.argwhere(counts2d > 0)
-reachable_positions = [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_idcs]
+binary_image = counts2d > 0
 
 plt.figure()
 plt.imshow(
-    counts2d > 0,
+    binary_image,
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
 plt.show()
 
+# Find contours of the binary image
+contours = measure.find_contours(binary_image, level=0.5)
+
+# Create a blank binary image (same shape)
+contour_image = np.zeros_like(binary_image, dtype=bool)
+
+# Draw contours on the blank image
+for contour in contours:
+
+    # Round coordinates and convert to integer indices
+    rr, cc = contour[:, 0].astype(int), contour[:, 1].astype(int)
+
+    # Clip to stay within image bounds
+    rr = np.clip(rr, 0, contour_image.shape[0] - 1)
+    cc = np.clip(cc, 0, contour_image.shape[1] - 1)
+
+    contour_image[rr, cc] = True
+
+# Plot the reconstructed binary image
+plt.figure()
+plt.imshow(
+    contour_image,
+    extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+    origin="lower",
+)
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.title("Reconstructed Binary Image from Contours")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
+plt.show()
+
+
+fraction2zero = 1 - contour_image.astype(int).sum() / binary_image.astype(int).sum()
+print(f"Fraction of pixels to zero out: {fraction2zero:.2f}")
+
+# Zero out 80% of the pixels in the binary image
+zeroed_image = binary_image.copy()
+num_pixels = zeroed_image.size
+num_zeroed = int(fraction2zero * num_pixels)
+
+# Randomly select indices to zero out
+zero_indices = np.random.choice(num_pixels, num_zeroed, replace=False)
+flat_image = zeroed_image.flatten()
+flat_image[zero_indices] = 0
+zeroed_image = flat_image.reshape(zeroed_image.shape)
+
+# Plot the zeroed-out binary image
+plt.figure()
+plt.imshow(
+    zeroed_image,
+    extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+    origin="lower",
+)
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.title("Binary Image with 80% Pixels Zeroed Out")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
+plt.show()
+
+# Compute the union of zeroed_image and contour_image
+final_image = np.logical_or(zeroed_image, contour_image)
+
+# Plot the final image
+plt.figure()
+plt.imshow(
+    final_image,
+    extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+    origin="lower",
+)
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.title("Final Image: Union of Zeroed and Contour Images")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
+plt.show()
+
+nonzero_idcs = np.argwhere(final_image)
+x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+reachable_positions = [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_idcs]
 reachable_positions_df = pd.DataFrame(reachable_positions, columns=["x", "y", "z"])
 
 print(reachable_positions_df)
