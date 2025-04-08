@@ -11,7 +11,7 @@
 import pickle
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from plants import SequentialReacher
+from plants import SequentialReacher, SequentialReacherMJX
 from environments import SequentialReachingEnv
 from networks import RNN
 from cmaes import CMA
@@ -30,13 +30,13 @@ import seaborn as sns
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
-    reacher = SequentialReacher(plant_xml_file="arm_model.xml")
+    reacher = SequentialReacherMJX(plant_xml_file="arm_model.xml")
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
         hidden_size=25,
         output_size=reacher.num_actuators,
-        activation=softpus,
-        alpha=1,  # reacher.model.opt.timestep / 25e-3,
+        activation=tanh,
+        alpha=reacher.model.opt.timestep / 10e-3,
     )
     env = SequentialReachingEnv(
         plant=reacher,
