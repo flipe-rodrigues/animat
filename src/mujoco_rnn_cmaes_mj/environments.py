@@ -202,12 +202,12 @@ class SequentialReachingEnv:
 
         if render:
             self.plant.render()
-        
+
         self.plant.model.eq_active0 = 1
 
         force_vecs = []
 
-        total_delay = 0
+        total_delay = delay
 
         while self.plant.viewer.is_running():
             if render:
@@ -222,10 +222,24 @@ class SequentialReachingEnv:
                 pos = self.plant.sample_targets(1)
                 self.plant.update_nail(pos)
                 # self.plant.update_target(pos)
+                # self.plant.randomize_configuration()
+                # self.plant.update_nail(self.plant.get_hand_pos())
+                # self.plant.model.body_mass[self.plant.hand_id] = 1e3
             action = rnn.step(obs)
-            self.plant.step(action)
+            self.plant.step(action * 0)
 
-            force_vecs.append(self.plant.data.efc_force.copy())
+            # sensor_id = self.plant.hand_force_id
+            # force = self.plant.data.sensordata[sensor_id : sensor_id + 3]
+            # # Recompute force assuming a hand mass of 1
+            # hand_mass = 1
+            # acceleration = force / (1e3 * self.plant.hand_default_mass)
+            # force = acceleration * hand_mass
+            # # force = self.plant.data.cfrc_ext[self.plant.hand_id, :3].copy()
+            print(self.plant.data.efc_force.shape)
+
+            force = self.plant.data.efc_force.copy()
+            # force_vecs.append(self.plant.data.efc_force.copy())
+            force_vecs.append(force)
 
         self.plant.close()
 
@@ -235,7 +249,9 @@ class SequentialReachingEnv:
 
         plt.figure(figsize=(10, 5))
         for i in range(force_vecs.shape[1]):
-            plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
+            plt.plot(
+                time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}"
+            )
         plt.xlabel("Time (s)")
         plt.ylabel("Force (a.u.)")
         plt.title("Force Vectors Over Time")

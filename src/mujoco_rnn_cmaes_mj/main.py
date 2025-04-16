@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
-from cmaes import CMA
 from utils import *
+from cmaes import CMA
 import numpy as np
 
 # %%

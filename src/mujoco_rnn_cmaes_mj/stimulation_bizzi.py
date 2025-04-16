@@ -370,6 +370,9 @@ from networks import RNN
 from utils import *
 
 reacher = SequentialReacher(plant_xml_file="arm_model.xml")
+print("Number of sensors:", reacher.num_sensors)
+print("Number of actuators:", reacher.num_actuators)
+
 rnn = RNN(
     input_size=3 + reacher.num_sensors,
     hidden_size=25,

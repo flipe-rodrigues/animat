@@ -20,7 +20,12 @@ class SequentialReacher:
         # Get the site ID using the name of your end effector
         self.hand_id = self.model.geom("hand").id
 
-        self.nail_id = self.model.geom("nail").id
+        # Get the hand's default mass value
+        self.hand_default_mass = self.model.body_mass[self.hand_id]
+
+        self.hand_force_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_SENSOR, "hand_force"
+        )
 
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
@@ -37,6 +42,31 @@ class SequentialReacher:
         with open(candidate_targets_path, "rb") as f:
             self.candidate_targets = pickle.load(f)
 
+    def randomize_configuration(self):
+        """Randomize the configuration of the arm"""
+        for i in range(self.model.nq):
+            self.data.qpos[i] = np.random.uniform(np.deg2rad(-60), np.deg2rad(60))
+        mujoco.mj_forward(self.model, self.data)
+
+    # def init_nail(self, position):
+    #     model = self.model
+    #     data = self.data
+
+    #     # Get world position of nail2 (the mocap site)
+    #     nail2_sid = model.site_name2id("nail2")
+    #     target_pos = data.site_xpos[nail2_sid].copy()
+
+    #     # Set hand position directly to that target (manual override)
+    #     hand_bid = model.body_name2id("hand")
+    #     data.qpos[model.jnt_qposadr[model.joint_name2id("shoulder")]] = ...
+    #     data.qpos[model.jnt_qposadr[model.joint_name2id("elbow")]] = ...
+    #     # You may need IK or manual approximation to move the hand to that point
+
+    #     # OR: run inverse kinematics or relax the system until it's close
+
+    #     # THEN activate the constraint
+    #     model.eq_active[model.eq_name2id("nail")] = 1
+
     def sample_targets(self, num_samples=10):
         return self.candidate_targets.sample(num_samples).values
 
@@ -47,7 +77,15 @@ class SequentialReacher:
 
     def update_nail(self, position):
         """Update the position of the nail"""
-        self.data.mocap_pos[1] = position
+        # nail1_id = self.model.site("nail1").id
+        # nail2_id = self.model.site("nail2").id
+        # self.data.site_xpos[nail1_id] = position
+        # self.data.site_xpos[nail2_id] = position
+        self.randomize_configuration()
+        self.data.eq_active[0] = 0
+        mujoco.mj_forward(self.model, self.data)
+        self.data.mocap_pos[0] = self.get_hand_pos()
+        self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
 
     def reset(self):
@@ -82,7 +120,8 @@ class SequentialReacher:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_JOINT] = True
             self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_ACTUATOR] = True
-            self.viewer.cam.lookat[:] = [0, -.25, 0]
+            self.viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONSTRAINT] = True
+            self.viewer.cam.lookat[:] = [0, -0.25, 0]
             self.viewer.cam.azimuth = 90
             self.viewer.cam.elevation = -90
         else:
