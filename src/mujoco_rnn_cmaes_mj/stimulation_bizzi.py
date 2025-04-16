@@ -72,6 +72,9 @@ best_rnn = rnn.from_params(optimizer.mean)
 # plt.title("Input Weights")
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
+
+# Swap input weights at indices 1 and 2 in best_rnn
+best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 env.evaluate(best_rnn, seed=0, render=True, log=True)
 env.plot()
 
@@ -154,11 +157,11 @@ sampled_targets = reacher.sample_targets(num_targets)
 
 # Extract x and z coordinates from the sampled targets
 x_coords = sampled_targets[:, 0]
-z_coords = sampled_targets[:, 2]
+y_coords = sampled_targets[:, 1]
 
 # Plot the x and z coordinates
 plt.figure(figsize=(6, 6))
-plt.scatter(x_coords, z_coords, c="red", s=25, alpha=0.7)
+plt.scatter(x_coords, y_coords, c="red", s=25, alpha=0.7)
 plt.title("Sampled Targets: X vs Z Coordinates")
 plt.xlabel("X Coordinate")
 plt.ylabel("Z Coordinate")
@@ -360,11 +363,13 @@ plt.show()
 .##....##....##.....##..##.....##.##.....##.##.......##.....##....##....##......
 ..######.....##....####.##.....##..#######..########.##.....##....##....########
 """
+import pickle
 from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
+from utils import *
 
-reacher = SequentialReacher(plant_xml_file="arm_model_nailed.xml")
+reacher = SequentialReacher(plant_xml_file="arm_model.xml")
 rnn = RNN(
     input_size=3 + reacher.num_sensors,
     hidden_size=25,

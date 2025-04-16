@@ -10,7 +10,7 @@
 """
 import pickle
 import matplotlib.pyplot as plt
-from plants import SequentialReacher, SequentialReacherMJX
+from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
 from cmaes import CMA
@@ -31,7 +31,7 @@ if __name__ == "__main__":
     reacher = SequentialReacher(plant_xml_file="arm_model.xml")
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
-        hidden_size=50,
+        hidden_size=25,
         output_size=reacher.num_actuators,
         activation=tanh,
         alpha=reacher.model.opt.timestep / 10e-3,

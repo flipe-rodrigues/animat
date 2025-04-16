@@ -12,8 +12,9 @@ import os
 import mujoco
 import numpy as np
 import pandas as pd
-from skimage import measure
 import matplotlib.pyplot as plt
+from skimage import measure
+from scipy.ndimage import binary_fill_holes
 
 # %%
 """
@@ -27,14 +28,14 @@ import matplotlib.pyplot as plt
 """
 
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "../mujoco/arm_model.xml"
+MODEL_XML_PATH = "../mujoco/arm_model_nailed.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 3600  # seconds
+dur2run = 36000  # seconds
 time_data = []
 hand_position_data = {
     "x": [],
@@ -161,7 +162,7 @@ axes[1, 0].set_ylabel("Force (a.u.)")
 # Position
 axes[1, 1].plot(
     hand_position_data["x"][:idcs2plot],
-    hand_position_data["z"][:idcs2plot],
+    hand_position_data["y"][:idcs2plot],
     color="black",
     marker=".",
     markersize=0.1,
@@ -198,7 +199,7 @@ sensor_stats_df = pd.DataFrame(
     }
 )
 
-target_stats_df = pd.DataFrame(
+hand_position_stats_df = pd.DataFrame(
     {
         "min": hand_position_df.min(),
         "max": hand_position_df.max(),
@@ -208,7 +209,7 @@ target_stats_df = pd.DataFrame(
 )
 
 print(sensor_stats_df)
-print(target_stats_df)
+print(hand_position_stats_df)
 
 # %%
 """
@@ -220,7 +221,7 @@ print(target_stats_df)
 .##....##..##.......##.....##.##....##.##.....##
 .##.....##.########.##.....##..######..##.....##
 """
-x, y = hand_position_data["x"], hand_position_data["z"]
+x, y = hand_position_data["x"], hand_position_data["y"]
 x_min, x_max = min(x), max(x)
 x_min = x_min - 0.05 * (x_max - x_min)
 x_max = x_max + 0.05 * (x_max - x_min)
@@ -246,6 +247,7 @@ plt.gca().invert_yaxis()
 plt.show()
 
 binary_image = counts2d > 0
+binary_image = binary_fill_holes(binary_image)
 
 plt.figure()
 plt.imshow(
@@ -320,12 +322,12 @@ plt.ylabel("y (a.u.)")
 plt.show()
 
 # Compute the union of zeroed_image and contour_image
-final_image = np.logical_or(zeroed_image, contour_image)
+merged_image = np.logical_or(zeroed_image, contour_image)
 
 # Plot the final image
 plt.figure()
 plt.imshow(
-    final_image,
+    merged_image,
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
@@ -336,14 +338,21 @@ plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
 plt.show()
 
-nonzero_idcs = np.argwhere(final_image)
+nonzero_idcs = np.argwhere(merged_image)
 x_centers = (x_edges[:-1] + x_edges[1:]) / 2
 y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-reachable_positions = [(x_centers[i], 0, y_centers[j]) for i, j in nonzero_idcs]
+candidate_targets = [(x_centers[i], y_centers[j], 0) for i, j in nonzero_idcs]
+candidate_targets_df = pd.DataFrame(candidate_targets, columns=["x", "y", "z"])
+
+print(candidate_targets_df)
+
+nonzero_idcs = np.argwhere(zeroed_image)
+x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+reachable_positions = [(x_centers[i], y_centers[j], 0) for i, j in nonzero_idcs]
 reachable_positions_df = pd.DataFrame(reachable_positions, columns=["x", "y", "z"])
 
 print(reachable_positions_df)
-
 
 # %%
 """
@@ -359,9 +368,8 @@ save_dir = "../mujoco"
 
 # Save sensor_data and hand_position_data to the mujoco folder
 sensor_stats_df.to_pickle(f"{save_dir}/sensor_stats.pkl")
-target_stats_df.to_pickle(f"{save_dir}/target_stats.pkl")
+hand_position_stats_df.to_pickle(f"{save_dir}/hand_position_stats.pkl")
 
 # Save reachable_positions_df to the mujoco folder
+candidate_targets_df.to_pickle(f"{save_dir}/candidate_targets.pkl")
 reachable_positions_df.to_pickle(f"{save_dir}/reachable_positions.pkl")
-
-# %%

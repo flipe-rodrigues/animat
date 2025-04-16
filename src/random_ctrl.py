@@ -4,7 +4,7 @@ import numpy as np
 import time
 
 # Load the model
-MODEL_XML_PATH = "mujoco/arm_model.xml"  # Replace with your actual XML file
+MODEL_XML_PATH = "mujoco/arm_model_nailed.xml"  # Replace with your actual XML file
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 

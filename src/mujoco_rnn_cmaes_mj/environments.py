@@ -8,11 +8,12 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 
+import pickle
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from plants_mjx import SequentialReacher
-from networks_mjx import RNN
-from utils_mjx import *
+from plants import SequentialReacher
+from networks import RNN
+from utils import *
 
 
 """
@@ -197,26 +198,29 @@ class SequentialReachingEnv:
         self.plant.reset()
 
         # Zero out the first 3 columns of the input weights
-        # rnn.W_in[:, :3] = 0
+
+        rnn.W_in[:, :3] = 0
 
         if render:
             self.plant.render()
-
+            
         force_vecs = []
-        self.plant.update_nail(self.plant.sample_targets(1))
 
+        total_delay = 0
+        
         while self.plant.viewer.is_running():
             if render:
                 self.plant.render()
 
             context, feedback = self.plant.get_obs()
             obs = np.concatenate([context, feedback])
-            if self.plant.data.time > delay:
+            
+            if self.plant.data.time > total_delay:
                 # rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
-                delay += 3
+                total_delay += delay
                 pos = self.plant.sample_targets(1)
                 self.plant.update_nail(pos)
-                self.plant.update_target(pos)
+                # self.plant.update_target(pos)
             action = rnn.step(obs)
             self.plant.step(action)
 
@@ -230,9 +234,7 @@ class SequentialReachingEnv:
 
         plt.figure(figsize=(10, 5))
         for i in range(force_vecs.shape[1]):
-            plt.plot(
-                time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}"
-            )
+            plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
         plt.xlabel("Time (s)")
         plt.ylabel("Force (a.u.)")
         plt.title("Force Vectors Over Time")

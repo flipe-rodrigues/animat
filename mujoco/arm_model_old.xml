@@ -13,9 +13,14 @@
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
 
+      <!-- <joint name="bah" type="hinge" axis="0 1 0"/> -->
+
       <!-- tendon attachment sites -->
       <site name="deltoid1" pos=".25 0 0" size="0.01"/>
       <site name="latissimus1" pos="-0.25 0 0" size="0.01"/>
+      
+       <!-- scapula -->
+      <!-- <geom name="scapula" type="sphere" size="0.05"/> -->
 
       <!-- UPPER ARM -->
       <body name="upper_arm" pos="0 0 0">
@@ -30,7 +35,9 @@
         <site name="triceps1" pos="-0.05 0 0" size="0.01"/>
 
         <!-- humerus -->
+        <!-- <geom name="humerus_head" type="sphere" size="0.05" pos="0 0 0" euler="90 0 90"/> -->
         <geom name="humerus" type="cylinder" size="0.025" fromto="0 0 0  0 0 -.4"/>
+        <!-- <geom name="humerus_collider" type="cylinder" size="0.025" fromto="0 0 0  0 0 -.4"/> -->
 
         <!-- LOWER ARM -->
         <body name="lower_arm" pos="0 0 -0.4">
@@ -41,36 +48,27 @@
 
           <!-- tendon attachment sites -->
           <site name="biceps2" pos="0.1 0 .03" size="0.01"/>
+          <!-- <site name="triceps_wrap" pos="-.2 0 -.1"/> -->
           <site name="triceps2" pos="-.08 0 0" size="0.01"/>
 
           <!-- radius -->
+          <!-- <geom name="radius_head" type="sphere" size="0.03" pos="-.1 0 0" euler="90 0 90" /> -->
           <geom name="radius" type="cylinder" size="0.025" fromto="-.075 0 0 .5 0 0"/>
 
           <!-- HAND -->
           <body name="hand" pos="0.5 0 0">
             <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1"/>
-            <site name="nail1" pos="0 0 0"/>
           </body>
         </body>
       </body>
     </body>
 
-    <!-- TARGET -->
     <body name="target" mocap="true" pos="0 0 0">
-      <geom name ="target" size=".025" type="sphere" contype="0" conaffinity="0" group="1" rgba="0 .75 1 1"/>
-      <!-- <site name="knot2" pos="0 0 0" size="0.01"/> -->
-    </body>
-    
-    <body name="nail" mocap="true" pos=".5 0 -.25">
-      <geom name ="nail" type="cylinder" size=".01" fromto="0 -.1 0 0 .1 0" contype="0" conaffinity="0" rgba="1 1 1 1"/>
-      <site name="nail2" pos="0 0 0"/>
+      <!-- <joint type="free"/> -->
+      <geom name = "target" size=".025" type="sphere" contype="0" conaffinity="0" group="1" rgba="0 .75 1 1"/>
     </body>
   </worldbody>
   
-  <equality>
-    <connect name="nail" active="true" site1="nail1" site2="nail2"/>
-  </equality>
-
   <tendon>
     <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.005" rgba="1 0 1 1">
       <site site="deltoid1"/>
@@ -91,13 +89,9 @@
     <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.005" rgba="0 1 0 1">
       <site site="triceps1"/>
       <geom geom="radius"/>
+      <!-- <geom geom="radius_head" sidesite="triceps_wrap"></geom> -->
       <site site="triceps2"/>
     </spatial>
-
-    <!-- <spatial name="knot_tendon" limited="true" range="0 .1" width="0.005" rgba="1 0 0 1">
-      <site site="knot1"/>
-      <site site="knot2"/>
-    </spatial> -->
   </tendon>
 
   <actuator>
