@@ -7,6 +7,16 @@ import mujoco.viewer
 from mujoco import mjx
 from utils import *
 
+"""
+.##.....##.......##
+.###...###.......##
+.####.####.......##
+.##.###.##.......##
+.##.....##.##....##
+.##.....##.##....##
+.##.....##..######.
+"""
+
 
 class SequentialReacher:
     def __init__(self, plant_xml_file="arm_model.xml"):
@@ -42,7 +52,13 @@ class SequentialReacher:
         return self.reachable_positions.sample(num_samples).values
 
     def update_target(self, position):
-        self.data.mocap_pos = position
+        """Update the position of the target"""
+        self.data.mocap_pos[0] = position
+        mujoco.mj_forward(self.model, self.data)
+
+    def update_nail(self, position):
+        """Update the position of the nail"""
+        self.data.mocap_pos[1] = position
         mujoco.mj_forward(self.model, self.data)
 
     def reset(self):
@@ -87,10 +103,56 @@ class SequentialReacher:
                 self.viewer.sync()
                 time.sleep(self.model.opt.timestep)
 
+    def get_force_at_eq(self, eq_name):
+
+        # Step 1: Find the equality constraint ID by name
+        eq_id = None
+        for i in range(self.model.neq):
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_EQUALITY, i)
+            if name == eq_name:
+                eq_id = i
+                break
+        if eq_id is None:
+            raise RuntimeError(f"Equality constraint '{eq_name}' not found.")
+
+        # Step 2: Get the constraint type to determine its size
+        eq_type = self.model.eq_type[eq_id]
+        eq_sizes = {
+            mujoco.mjtEq.mjEQ_CONNECT: 3,
+            mujoco.mjtEq.mjEQ_WELD: 6,
+            mujoco.mjtEq.mjEQ_JOINT: 1,
+            mujoco.mjtEq.mjEQ_TENDON: 1,
+            mujoco.mjtEq.mjEQ_DISTANCE: 1,
+        }
+        constraint_dim = eq_sizes[eq_type]
+
+        # Step 3: Sum dimensions of all previous equality constraints to find start index
+        efc_start = 0
+        for i in range(eq_id):
+            prev_type = self.model.eq_type[i]
+            efc_start += eq_sizes[prev_type]
+
+        # Step 4: Extract the force vector (usually length 3 for CONNECT)
+        force_vec = self.data.efc_force[efc_start : efc_start + constraint_dim]
+
+        return force_vec
+
     def close(self):
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None
+
+
+"""
+.##.....##.......##.##.....##
+.###...###.......##..##...##.
+.####.####.......##...##.##..
+.##.###.##.......##....###...
+.##.....##.##....##...##.##..
+.##.....##.##....##..##...##.
+.##.....##..######..##.....##
+"""
+
 
 class SequentialReacherMJX:
     def __init__(self, plant_xml_file="arm_model.xml"):

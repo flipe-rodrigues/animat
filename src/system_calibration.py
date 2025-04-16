@@ -289,11 +289,12 @@ plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
 plt.show()
 
-
-fraction2zero = 1 - contour_image.astype(int).sum() / binary_image.astype(int).sum()
+num_countour_pixels = contour_image.astype(int).sum()
+num_binary_pixels = binary_image.astype(int).sum()
+fraction2zero = 1 - num_countour_pixels / (num_binary_pixels - num_countour_pixels)
 print(f"Fraction of pixels to zero out: {fraction2zero:.2f}")
 
-# Zero out 80% of the pixels in the binary image
+# Zero out a fraction of the pixels in the binary image
 zeroed_image = binary_image.copy()
 num_pixels = zeroed_image.size
 num_zeroed = int(fraction2zero * num_pixels)

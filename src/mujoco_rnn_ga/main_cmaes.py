@@ -31,7 +31,7 @@ if __name__ == "__main__":
     reacher = SequentialReacher(plant_xml_file="arm_model.xml")
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
-        hidden_size=100,
+        hidden_size=50,
         output_size=reacher.num_actuators,
         activation=tanh,
         alpha=reacher.model.opt.timestep / 10e-3,
@@ -56,10 +56,10 @@ if __name__ == "__main__":
         solutions = []
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
-            value = -env.evaluate(rnn.from_params(x), seed=gg)
-            solutions.append((x, value))
-            fitnesses.append((gg, ii, value))
-            print(f"#{gg}.{ii} {value}")
+            fitness = -env.evaluate(rnn.from_params(x), seed=gg)
+            solutions.append((x, fitness))
+            fitnesses.append((gg, ii, fitness))
+            print(f"#{gg}.{ii} {fitness}")
         optimizer.tell(solutions)
 
         best_rnn = rnn.from_params(optimizer.mean)

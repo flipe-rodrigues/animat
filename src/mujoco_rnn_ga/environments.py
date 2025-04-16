@@ -190,28 +190,57 @@ class SequentialReachingEnv:
     ..######.....##....####.##.....##..#######..########.##.....##....##....########
     """
 
-    def stimulate(self, rnn, units, seed=0, render=False):
+    def stimulate(self, rnn, units, delay, seed=0, render=False):
         """Evaluate fitness of a given RNN policy"""
         np.random.seed(seed)
 
         rnn.init_state()
         self.plant.reset()
 
+        # Zero out the first 3 columns of the input weights
+
+        rnn.W_in[:, :3] = 0
+
         if render:
             self.plant.render()
             
+        force_vecs = []
+        self.plant.update_nail(self.plant.sample_targets(1))
+
         while self.plant.viewer.is_running():
             if render:
                 self.plant.render()
 
             context, feedback = self.plant.get_obs()
-            obs = np.concatenate([context * 0, feedback])
-            if self.plant.data.time > 3:
-                rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
+            obs = np.concatenate([context, feedback])
+            if self.plant.data.time > delay:
+                # rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
+                delay += 3
+                pos = self.plant.sample_targets(1)
+                self.plant.update_nail(pos)
+                # self.plant.update_target(pos)
             action = rnn.step(obs)
-            self.plant.step(action)
+            self.plant.step(action * 0)
+
+            force_vecs.append(self.plant.data.efc_force.copy())
 
         self.plant.close()
+
+        # Plot force vectors over time
+        force_vecs = np.array(force_vecs)
+        time = np.linspace(0, self.plant.data.time, len(force_vecs))
+
+        plt.figure(figsize=(10, 5))
+        for i in range(force_vecs.shape[1]):
+            plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Force (a.u.)")
+        plt.title("Force Vectors Over Time")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        return force_vecs
 
     """
     .########..##........#######..########
