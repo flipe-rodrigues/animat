@@ -12,7 +12,7 @@
     <muscle ctrllimited="true" ctrlrange="0 1" />
   </default>
 
-  
+
   <worldbody>
     <light name="light" pos="0 0 5" diffuse=".1 .1 .1" />
 
@@ -57,7 +57,7 @@
 
           <!-- HAND -->
           <body name="hand" pos="0.5 0 0">
-            <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" />
+            <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 .1" />
             <site name="nail1" pos="0 0 0" />
           </body>
         </body>
@@ -66,20 +66,20 @@
 
     <!-- TARGET -->
     <body name="target" mocap="true" pos="0 0 0">
-      <geom name="target" size=".025" type="sphere" contype="0" conaffinity="0" group="1"
+      <geom name="target" size=".025" type="sphere" contype="0" conaffinity="0"
         rgba="0 .75 1 1" />
     </body>
 
     <!-- NAIL -->
     <body name="nail" mocap="true" pos=".5 -.25 0">
-      <geom name="nail" type="cylinder" size=".01" fromto="0 0 -.1 0 0 .1" contype="0"
+      <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
         conaffinity="0" rgba="1 1 1 1" />
       <site name="nail2" pos="0 0 0" />
     </body>
   </worldbody>
 
   <equality>
-    <connect name="nail" active="false" site1="nail1" site2="nail2" />
+    <connect name="nail" active="true" site1="nail1" site2="nail2" />
   </equality>
 
   <tendon>

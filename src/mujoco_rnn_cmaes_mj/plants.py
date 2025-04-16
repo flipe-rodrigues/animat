@@ -20,6 +20,8 @@ class SequentialReacher:
         # Get the site ID using the name of your end effector
         self.hand_id = self.model.geom("hand").id
 
+        self.nail_id = self.model.geom("nail").id
+
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
         with open(sensor_stats_path, "rb") as f:

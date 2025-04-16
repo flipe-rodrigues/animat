@@ -198,16 +198,17 @@ class SequentialReachingEnv:
         self.plant.reset()
 
         # Zero out the first 3 columns of the input weights
-
         rnn.W_in[:, :3] = 0
 
         if render:
             self.plant.render()
-            
+        
+        self.plant.model.eq_active0 = 1
+
         force_vecs = []
 
         total_delay = 0
-        
+
         while self.plant.viewer.is_running():
             if render:
                 self.plant.render()
