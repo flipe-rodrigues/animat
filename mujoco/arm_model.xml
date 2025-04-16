@@ -81,7 +81,7 @@
 
   <equality>
     <!-- <weld name="nail_eq" active="false" body1="hand" body2="nail"/> -->
-    <connect name="nail_eq" active="true" site1="nail1" site2="nail2" />
+    <connect name="nail_eq" active="false" site1="nail1" site2="nail2" />
   </equality>
 
   <tendon>
