@@ -208,14 +208,17 @@ class SequentialReachingEnv:
         force_vecs = []
 
         total_delay = delay
-
+            
+        pos = self.plant.sample_targets(1)
+        self.plant.update_nail(pos)
+            
         while self.plant.viewer.is_running():
             if render:
                 self.plant.render()
 
             context, feedback = self.plant.get_obs()
             obs = np.concatenate([context, feedback])
-            
+
             if self.plant.data.time > total_delay:
                 # rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
                 total_delay += delay
