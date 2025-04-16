@@ -59,6 +59,13 @@
           <body name="hand" pos="0.5 0 0">
             <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 .1" />
             <site name="nail1" pos="0 0 0" />
+
+            <body name="nail" pos="0 0 0">
+              <joint type="free"/>
+              <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
+                conaffinity="0" rgba="1 1 1 1" />
+              <site name="nail2" pos="0 0 0" />
+            </body>
           </body>
         </body>
       </body>
@@ -71,11 +78,11 @@
     </body>
 
     <!-- NAIL -->
-    <body name="nail" mocap="true" pos=".5 -.25 0">
+    <!-- <body name="nail" mocap="true" pos=".5 -.25 0">
       <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
         conaffinity="0" rgba="1 1 1 1" />
       <site name="nail2" pos="0 0 0" />
-    </body>
+    </body> -->
   </worldbody>
 
   <equality>
