@@ -226,7 +226,7 @@ class SequentialReachingEnv:
                 # self.plant.update_nail(self.plant.get_hand_pos())
                 # self.plant.model.body_mass[self.plant.hand_id] = 1e3
             action = rnn.step(obs)
-            self.plant.step(action * 0)
+            self.plant.step(action)
 
             # sensor_id = self.plant.hand_force_id
             # force = self.plant.data.sensordata[sensor_id : sensor_id + 3]

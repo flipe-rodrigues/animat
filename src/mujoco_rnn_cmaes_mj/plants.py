@@ -84,9 +84,9 @@ class SequentialReacher:
         self.randomize_configuration()
         self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
-        self.data.mocap_pos[0] = self.get_hand_pos()
         self.data.mocap_pos[1] = self.get_hand_pos()
-        self.data.eq_active[0] = 0
+        mujoco.mj_forward(self.model, self.data)
+        self.data.eq_active[0] = 1
         mujoco.mj_forward(self.model, self.data)
 
     def reset(self):

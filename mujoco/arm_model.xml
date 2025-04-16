@@ -73,7 +73,7 @@
     <!-- NAIL -->
     <body name="nail" mocap="true" pos=".5 -.4 0">
       <!-- <joint type="free" name="nail_joint"/> -->
-      <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
+      <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 1" contype="0"
         conaffinity="0" rgba="1 1 1 1" />
       <site name="nail2" pos="0 0 0" />
     </body>
