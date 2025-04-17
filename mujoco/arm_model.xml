@@ -58,7 +58,7 @@
           <!-- HAND -->
           <body name="hand" pos="0.5 0 0">
             <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" />
-            <site name="nail1" pos="0 0 0" />
+            <site name="nail2" pos="0 0 0" />
           </body>
         </body>
       </body>
@@ -75,7 +75,7 @@
       <!-- <joint type="free" name="nail_joint"/> -->
       <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
         conaffinity="0" rgba="1 1 1 1" />
-      <site name="nail2" pos="0 0 0" />
+      <site name="nail1" pos="0 0 0" />
     </body>
   </worldbody>
 

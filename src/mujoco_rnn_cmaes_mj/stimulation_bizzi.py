@@ -400,47 +400,99 @@ model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
-forces = env.stimulate(best_rnn, units=np.array([8]), delay=1, seed=0, render=True)
+force_data = env.stimulate(
+    best_rnn, units=np.array([8]), action_modifier=1, delay=1, seed=0, render=True
+)
 
 # %%
-import mujoco
+import matplotlib.pyplot as plt
 
-model = reacher.model
-data = reacher.data
+# Plot force vectors over time
+position_vecs = np.array(force_data["position"])
+force_vecs = np.array(force_data["force"])
 
-# Assume model and data are already loaded
-target_eq_name = "nail"
+# Replace NaNs with zeros in force_vecs
+position_vecs = np.nan_to_num(position_vecs)
+force_vecs = np.nan_to_num(force_vecs)
 
-# Step 1: Find the equality constraint ID by name
-eq_id = None
-for i in range(model.neq):
-    name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_EQUALITY, i)
-    if name == target_eq_name:
-        eq_id = i
-        break
-if eq_id is None:
-    raise RuntimeError(f"Equality constraint '{target_eq_name}' not found.")
+time = np.linspace(0, reacher.data.time, len(force_vecs))
 
-print("Equality constraint ID:", eq_id)
+plt.figure(figsize=(10, 5))
+for i in range(force_vecs.shape[1]):
+    plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
+lower_percentile = np.percentile(force_vecs, 1)
+upper_percentile = np.percentile(force_vecs, 99)
 
-# Step 2: Get the constraint type to determine its size
-eq_type = model.eq_type[eq_id]
-eq_sizes = {
-    mujoco.mjtEq.mjEQ_CONNECT: 3,
-    mujoco.mjtEq.mjEQ_WELD: 6,
-    mujoco.mjtEq.mjEQ_JOINT: 1,
-    mujoco.mjtEq.mjEQ_TENDON: 1,
-    mujoco.mjtEq.mjEQ_DISTANCE: 1,
-}
-constraint_dim = eq_sizes[eq_type]
+plt.ylim([lower_percentile, upper_percentile])
+plt.xlabel("Time (s)")
+plt.ylabel("Force (a.u.)")
+plt.title("Force Vectors Over Time")
+plt.legend()
+plt.tight_layout()
+plt.show()
 
-# Step 3: Sum dimensions of all previous equality constraints to find start index
-efc_start = 0
-for i in range(eq_id):
-    prev_type = model.eq_type[i]
-    efc_start += eq_sizes[prev_type]
+# Define the time window for averaging (100 ms)
+time_window = 0.1  # 100 ms
 
-# Step 4: Extract the force vector (usually length 3 for CONNECT)
-force_vec = data.efc_force[efc_start : efc_start + constraint_dim]
+# Initialize a list to store average force vectors
+average_positions = []
+average_forces = []
 
-print(f"Force from equality constraint '{target_eq_name}':", force_vec)
+# Iterate second by second
+for t in range(1, int(reacher.data.time) + 1):
+
+    # Find indices corresponding to the last 100 ms of the current second
+    start_time = t - time_window
+    indices = (time > start_time) & (time <= t)
+
+    # Compute the average position vector within the 100-ms period
+    avg_position_vec = np.mean(position_vecs[indices], axis=0)
+    average_positions.append(avg_position_vec)
+
+    # Compute the average force vector within the 100-ms period
+    avg_force_vec = np.mean(force_vecs[indices], axis=0)
+    average_forces.append(avg_force_vec)
+
+# Convert the list to a numpy array for further analysis
+average_positions = np.array(average_positions)
+average_forces = np.array(average_forces)
+
+# Print the average position vectors for each second
+for i, avg_vec in enumerate(average_positions, start=1):
+    print(f"Average position vector for second {i}: {avg_vec}")
+
+print(average_positions)
+print(average_forces)
+
+plt.figure(figsize=(8, 8))
+
+# Print the average force vectors for each second
+for i, avg_vec in enumerate(average_forces, start=1):
+    print(f"Average force vector for second {i}: {avg_vec}")
+
+    # Extract x and y components from average positions and forces
+    x_positions = [pos[0] for pos in average_positions]
+    y_positions = [pos[1] for pos in average_positions]
+    x_forces = [force[0] for force in average_forces]
+    y_forces = [force[1] for force in average_forces]
+
+    # Plot the 2D vector field
+    plt.quiver(
+        x_positions,
+        y_positions,
+        x_forces,
+        y_forces,
+        angles="xy",
+        scale_units="xy",
+        scale=500,
+        color="black",
+    )
+
+plt.title("Convergence force field (CFF) without stimulation")
+plt.xlabel("X Position")
+plt.ylabel("Y Position")
+plt.grid(True)
+plt.axis("equal")
+plt.xlim(reacher.hand_position_stats["min"][0], reacher.hand_position_stats["max"][0])
+plt.ylim(reacher.hand_position_stats["min"][1], reacher.hand_position_stats["max"][1])
+plt.show()

@@ -32,15 +32,20 @@ class SequentialReacher:
         with open(sensor_stats_path, "rb") as f:
             self.sensor_stats = pickle.load(f)
 
-        # Load target stats
+        # Load hand stats
         hand_position_stats_path = os.path.join(mj_dir, "hand_position_stats.pkl")
         with open(hand_position_stats_path, "rb") as f:
             self.hand_position_stats = pickle.load(f)
 
-        # Load valid target positions
+        # Load candidate target positions
         candidate_targets_path = os.path.join(mj_dir, "candidate_targets.pkl")
         with open(candidate_targets_path, "rb") as f:
             self.candidate_targets = pickle.load(f)
+
+        # Load candidate nail positions
+        grid_positions_path = os.path.join(mj_dir, "grid_positions.pkl")
+        with open(grid_positions_path, "rb") as f:
+            self.grid_positions = pickle.load(f)
 
     def randomize_configuration(self):
         """Randomize the configuration of the arm"""
@@ -48,24 +53,46 @@ class SequentialReacher:
             self.data.qpos[i] = np.random.uniform(np.deg2rad(-60), np.deg2rad(60))
         mujoco.mj_forward(self.model, self.data)
 
-    # def init_nail(self, position):
-    #     model = self.model
-    #     data = self.data
+    # def fabrik(self, position):
+    #     """FABRIK algorithm to solve inverse kinematics for a 2D arm"""
+    #     # Initialize the arm configuration
+    #     arm_length = 0.1  # Length of each arm segment
+    #     num_segments = 2  # Number of segments in the arm
+    #     arm_positions = np.zeros((num_segments + 1, 2))  # (x, y) positions of each segment
+    #     arm_positions[0] = self.data.mocap_pos[0][:2]  # Start from the current position
 
-    #     # Get world position of nail2 (the mocap site)
-    #     nail2_sid = model.site_name2id("nail2")
-    #     target_pos = data.site_xpos[nail2_sid].copy()
+    #     pass
 
-    #     # Set hand position directly to that target (manual override)
-    #     hand_bid = model.body_name2id("hand")
-    #     data.qpos[model.jnt_qposadr[model.joint_name2id("shoulder")]] = ...
-    #     data.qpos[model.jnt_qposadr[model.joint_name2id("elbow")]] = ...
-    #     # You may need IK or manual approximation to move the hand to that point
+    def solve_ik(self, position, max_iters=100, tol=1e-4, alpha=0.5
+    ):
+        dof_idxs = [self.model.jnt_dofadr[j] for j in [0, 1]]
 
-    #     # OR: run inverse kinematics or relax the system until it's close
+        for i in range(max_iters):
+            mujoco.mj_forward(self.model, self.data)
 
-    #     # THEN activate the constraint
-    #     model.eq_active[model.eq_name2id("nail")] = 1
+            current_pos = self.data.site_xpos[self.hand_id].copy()
+            error = position - current_pos
+
+            if np.linalg.norm(error) < tol:
+                break
+
+            # Compute Jacobian: J is (3 x nv), but we only care about 2 columns (our 2 joints)
+            J = np.zeros((3, self.model.nv))
+            mujoco.mj_jacSite(self.model, self.data, J, None, self.hand_id)
+
+            # Extract Jacobian columns for our joints
+            J_reduced = J[:, dof_idxs]  # shape (3, 2)
+
+            # Least squares update (pseudo-inverse)
+            dq = alpha * np.linalg.pinv(J_reduced) @ error
+
+            # Apply update and clip to joint limits
+            for i, dof in enumerate(dof_idxs):
+                new_angle = self.data.qpos[dof] + dq[i]
+                low, high = np.deg2rad(-60), np.deg2rad(60)
+                self.data.qpos[dof] = np.clip(new_angle, low, high)
+
+        mujoco.mj_forward(self.model, self.data)
 
     def sample_targets(self, num_samples=10):
         return self.candidate_targets.sample(num_samples).values
@@ -77,14 +104,11 @@ class SequentialReacher:
 
     def update_nail(self, position):
         """Update the position of the nail"""
-        # nail1_id = self.model.site("nail1").id
-        # nail2_id = self.model.site("nail2").id
-        # self.data.site_xpos[nail1_id] = position
-        # self.data.site_xpos[nail2_id] = position
-        self.randomize_configuration()
+        # self.randomize_configuration()
+        # self.solve_ik(position)
         self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
-        self.data.mocap_pos[1] = self.get_hand_pos()
+        self.data.mocap_pos[1] = position  # self.get_hand_pos()
         mujoco.mj_forward(self.model, self.data)
         self.data.eq_active[0] = 1
         mujoco.mj_forward(self.model, self.data)

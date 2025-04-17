@@ -190,7 +190,7 @@ class SequentialReachingEnv:
     ..######.....##....####.##.....##..#######..########.##.....##....##....########
     """
 
-    def stimulate(self, rnn, units, delay, seed=0, render=False):
+    def stimulate(self, rnn, units, action_modifier=1, delay=1, seed=0, render=False):
         """Evaluate fitness of a given RNN policy"""
         np.random.seed(seed)
 
@@ -205,14 +205,15 @@ class SequentialReachingEnv:
 
         self.plant.model.eq_active0 = 1
 
-        force_vecs = []
+        force_data = {"position": [], "force": []}
 
         total_delay = delay
+
+        grid_positions = np.array(self.plant.grid_positions.copy())
+        grid_pos_idx = 0
+        self.plant.update_nail(grid_positions[grid_pos_idx])
             
-        pos = self.plant.sample_targets(1)
-        self.plant.update_nail(pos)
-            
-        while self.plant.viewer.is_running():
+        while self.plant.viewer.is_running() and grid_pos_idx < len(grid_positions) - 1:
             if render:
                 self.plant.render()
 
@@ -221,46 +222,23 @@ class SequentialReachingEnv:
 
             if self.plant.data.time > total_delay:
                 # rnn.h[units] = rnn.activation(np.inf)  # Stimulate the specified units
+                grid_pos_idx += 1
+                self.plant.update_nail(grid_positions[grid_pos_idx])
                 total_delay += delay
-                pos = self.plant.sample_targets(1)
-                self.plant.update_nail(pos)
-                # self.plant.update_target(pos)
-                # self.plant.randomize_configuration()
-                # self.plant.update_nail(self.plant.get_hand_pos())
-                # self.plant.model.body_mass[self.plant.hand_id] = 1e3
-            action = rnn.step(obs)
-            self.plant.step(action)
 
-            # sensor_id = self.plant.hand_force_id
-            # force = self.plant.data.sensordata[sensor_id : sensor_id + 3]
-            # # Recompute force assuming a hand mass of 1
-            # hand_mass = 1
-            # acceleration = force / (1e3 * self.plant.hand_default_mass)
-            # force = acceleration * hand_mass
-            # # force = self.plant.data.cfrc_ext[self.plant.hand_id, :3].copy()
+            action = rnn.step(obs) * action_modifier
+            self.plant.step(action)
             force = self.plant.data.efc_force.copy()
-            # force_vecs.append(self.plant.data.efc_force.copy())
-            force_vecs.append(force)
+
+            if force.shape != (3,):
+                force = np.full(3, np.nan)
+
+            force_data["position"].append(grid_positions[grid_pos_idx])
+            force_data["force"].append(force)
 
         self.plant.close()
 
-        # Plot force vectors over time
-        force_vecs = np.array(force_vecs)
-        time = np.linspace(0, self.plant.data.time, len(force_vecs))
-
-        plt.figure(figsize=(10, 5))
-        for i in range(force_vecs.shape[1]):
-            plt.plot(
-                time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}"
-            )
-        plt.xlabel("Time (s)")
-        plt.ylabel("Force (a.u.)")
-        plt.title("Force Vectors Over Time")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
-        return force_vecs
+        return force_data
 
     """
     .########..##........#######..########
