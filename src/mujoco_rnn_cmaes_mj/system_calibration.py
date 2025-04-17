@@ -28,7 +28,7 @@ from scipy.ndimage import binary_fill_holes
 """
 
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "../mujoco/arm_model_nailed.xml"
+MODEL_XML_PATH = "../../mujoco/arm_model.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
@@ -246,24 +246,27 @@ plt.gca().invert_xaxis()
 plt.gca().invert_yaxis()
 plt.show()
 
-binary_image = counts2d > 0
-binary_image = binary_fill_holes(binary_image)
+reachable_image = counts2d > 0
+reachable_image = binary_fill_holes(reachable_image)
 
 plt.figure()
 plt.imshow(
-    binary_image,
+    reachable_image,
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
 plt.gca().invert_xaxis()
 plt.gca().invert_yaxis()
+plt.title("All Reachable Positions")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
 plt.show()
 
 # Find contours of the binary image
-contours = measure.find_contours(binary_image, level=0.5)
+contours = measure.find_contours(reachable_image, level=0.5)
 
 # Create a blank binary image (same shape)
-contour_image = np.zeros_like(binary_image, dtype=bool)
+contours_image = np.zeros_like(reachable_image, dtype=bool)
 
 # Draw contours on the blank image
 for contour in contours:
@@ -272,15 +275,15 @@ for contour in contours:
     rr, cc = contour[:, 0].astype(int), contour[:, 1].astype(int)
 
     # Clip to stay within image bounds
-    rr = np.clip(rr, 0, contour_image.shape[0] - 1)
-    cc = np.clip(cc, 0, contour_image.shape[1] - 1)
+    rr = np.clip(rr, 0, contours_image.shape[0] - 1)
+    cc = np.clip(cc, 0, contours_image.shape[1] - 1)
 
-    contour_image[rr, cc] = True
+    contours_image[rr, cc] = True
 
 # Plot the reconstructed binary image
 plt.figure()
 plt.imshow(
-    contour_image,
+    contours_image,
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
@@ -291,15 +294,17 @@ plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
 plt.show()
 
-num_countour_pixels = contour_image.astype(int).sum()
-num_binary_pixels = binary_image.astype(int).sum()
-fraction2zero = 1 - num_countour_pixels / (num_binary_pixels - num_countour_pixels)
-print(f"Fraction of pixels to zero out: {fraction2zero:.2f}")
+num_countour_pixels = contours_image.astype(int).sum()
+num_reachable_pixels = reachable_image.astype(int).sum()
+fraction_to_zero_out = 1 - num_countour_pixels / (
+    num_reachable_pixels - num_countour_pixels
+)
+print(f"Fraction of pixels to zero out: {fraction_to_zero_out:.2f}")
 
 # Zero out a fraction of the pixels in the binary image
-zeroed_image = binary_image.copy()
+zeroed_image = reachable_image.copy()
 num_pixels = zeroed_image.size
-num_zeroed = int(fraction2zero * num_pixels)
+num_zeroed = int(fraction_to_zero_out * num_pixels)
 
 # Randomly select indices to zero out
 zero_indices = np.random.choice(num_pixels, num_zeroed, replace=False)
@@ -322,12 +327,12 @@ plt.ylabel("y (a.u.)")
 plt.show()
 
 # Compute the union of zeroed_image and contour_image
-merged_image = np.logical_or(zeroed_image, contour_image)
+candidate_targets_image = np.logical_or(zeroed_image, contours_image)
 
 # Plot the final image
 plt.figure()
 plt.imshow(
-    merged_image,
+    candidate_targets_image,
     extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
     origin="lower",
 )
@@ -338,21 +343,91 @@ plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
 plt.show()
 
-nonzero_idcs = np.argwhere(merged_image)
+candidate_idcs = np.argwhere(candidate_targets_image)
 x_centers = (x_edges[:-1] + x_edges[1:]) / 2
 y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-candidate_targets = [(x_centers[i], y_centers[j], 0) for i, j in nonzero_idcs]
+candidate_targets = [(x_centers[i], y_centers[j], 0) for i, j in candidate_idcs]
 candidate_targets_df = pd.DataFrame(candidate_targets, columns=["x", "y", "z"])
 
 print(candidate_targets_df)
 
-nonzero_idcs = np.argwhere(zeroed_image)
+reachable_idcs = np.argwhere(reachable_image)
 x_centers = (x_edges[:-1] + x_edges[1:]) / 2
 y_centers = (y_edges[:-1] + y_edges[1:]) / 2
-reachable_positions = [(x_centers[i], y_centers[j], 0) for i, j in nonzero_idcs]
+reachable_positions = [(x_centers[i], y_centers[j], 0) for i, j in reachable_idcs]
 reachable_positions_df = pd.DataFrame(reachable_positions, columns=["x", "y", "z"])
 
 print(reachable_positions_df)
+
+# %%
+"""
+..#######..########......######...########..####.########.
+.##.....##.##.....##....##....##..##.....##..##..##.....##
+........##.##.....##....##........##.....##..##..##.....##
+..#######..##.....##....##...####.########...##..##.....##
+.##........##.....##....##....##..##...##....##..##.....##
+.##........##.....##....##....##..##....##...##..##.....##
+.#########.########......######...##.....##.####.########.
+"""
+
+# Create a binary image with a 2D grid of a given xy resolution
+xy_resolution = 0.1  # Define the resolution
+grid_image = np.zeros_like(reachable_image, dtype=bool)
+
+# Calculate the number of grid points along each axis
+x_grid_points = int((x_max - x_min) / xy_resolution) + 1
+y_grid_points = int((y_max - y_min) / xy_resolution) + 1
+
+# Generate grid points
+x_grid = np.linspace(x_min, x_max, x_grid_points)
+y_grid = np.linspace(y_min, y_max, y_grid_points)
+
+# Mark grid points in the binary image
+for x in x_grid:
+    for y in y_grid:
+        # Find the closest indices in the binary image
+        x_idx = np.searchsorted(x_edges, x) - 1
+        y_idx = np.searchsorted(y_edges, y) - 1
+
+        # Ensure indices are within bounds
+        if 0 <= x_idx < grid_image.shape[1] and 0 <= y_idx < grid_image.shape[0]:
+            grid_image[y_idx, x_idx] = True
+
+# Plot the grid binary image
+plt.figure()
+plt.imshow(
+    grid_image,
+    extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+    origin="lower",
+)
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.title("Binary Image with 2D Grid")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
+plt.show()
+
+reachable_grid_image = grid_image & reachable_image
+plt.figure()
+plt.imshow(
+    reachable_grid_image,
+    extent=(x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]),
+    origin="lower",
+)
+plt.gca().invert_xaxis()
+plt.gca().invert_yaxis()
+plt.title("Valid Grid Points")
+plt.xlabel("x (a.u.)")
+plt.ylabel("y (a.u.)")
+plt.show()
+
+grid_idcs = np.argwhere(reachable_grid_image)
+x_centers = (x_edges[:-1] + x_edges[1:]) / 2
+y_centers = (y_edges[:-1] + y_edges[1:]) / 2
+grid_positions = [(x_centers[i], y_centers[j], 0) for i, j in grid_idcs]
+grid_positions_df = pd.DataFrame(grid_positions, columns=["x", "y", "z"])
+
+print(grid_positions_df)
 
 # %%
 """
@@ -364,12 +439,13 @@ print(reachable_positions_df)
 .##....##.##.....##...##.##...##......
 ..######..##.....##....###....########
 """
-save_dir = "../mujoco"
+save_dir = "../../mujoco"
 
 # Save sensor_data and hand_position_data to the mujoco folder
 sensor_stats_df.to_pickle(f"{save_dir}/sensor_stats.pkl")
 hand_position_stats_df.to_pickle(f"{save_dir}/hand_position_stats.pkl")
 
 # Save reachable_positions_df to the mujoco folder
+grid_positions_df.to_pickle(f"{save_dir}/grid_positions.pkl")
 candidate_targets_df.to_pickle(f"{save_dir}/candidate_targets.pkl")
 reachable_positions_df.to_pickle(f"{save_dir}/reachable_positions.pkl")

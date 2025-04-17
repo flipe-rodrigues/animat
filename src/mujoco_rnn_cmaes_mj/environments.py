@@ -238,8 +238,6 @@ class SequentialReachingEnv:
             # acceleration = force / (1e3 * self.plant.hand_default_mass)
             # force = acceleration * hand_mass
             # # force = self.plant.data.cfrc_ext[self.plant.hand_id, :3].copy()
-            print(self.plant.data.efc_force.shape)
-
             force = self.plant.data.efc_force.copy()
             # force_vecs.append(self.plant.data.efc_force.copy())
             force_vecs.append(force)

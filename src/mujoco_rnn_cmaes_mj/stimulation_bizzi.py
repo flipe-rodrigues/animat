@@ -52,6 +52,7 @@ env = SequentialReachingEnv(
 models_dir = "../../models"
 gen_idx = 9999  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
+# model_file = "optimizer_gen_5000_tau10_rnn50.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
@@ -399,7 +400,7 @@ model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
-forces = env.stimulate(best_rnn, units=np.array([8]), delay=3, seed=0, render=True)
+forces = env.stimulate(best_rnn, units=np.array([8]), delay=1, seed=0, render=True)
 
 # %%
 import mujoco
