@@ -365,6 +365,7 @@ plt.show()
 ..######.....##....####.##.....##..#######..########.##.....##....##....########
 """
 import pickle
+import matplotlib.pyplot as plt
 from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
@@ -400,75 +401,76 @@ model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
-force_data = env.stimulate(
-    best_rnn, units=np.array([8]), action_modifier=1, delay=1, seed=0, render=True
-)
 
-# %%
-import matplotlib.pyplot as plt
+# Zero out the first 3 columns of the input weights
+# rnn.W_in[:, :3] = 0
+rnn.W_in[:, :] = 0
 
-# Plot force vectors over time
-position_vecs = np.array(force_data["position"])
-force_vecs = np.array(force_data["force"])
+for unit_idx in range(0, rnn.hidden_size):
 
-# Replace NaNs with zeros in force_vecs
-position_vecs = np.nan_to_num(position_vecs)
-force_vecs = np.nan_to_num(force_vecs)
+    force_data = env.stimulate(
+        best_rnn,
+        units=np.array([unit_idx]),
+        action_modifier=1,
+        delay=1,
+        seed=0,
+        render=False,
+    )
 
-time = np.linspace(0, reacher.data.time, len(force_vecs))
+    # Plot force vectors over time
+    position_vecs = np.array(force_data["position"])
+    force_vecs = np.array(force_data["force"])
 
-plt.figure(figsize=(10, 5))
-for i in range(force_vecs.shape[1]):
-    plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
-lower_percentile = np.percentile(force_vecs, 1)
-upper_percentile = np.percentile(force_vecs, 99)
+    # Replace NaNs with zeros in force_vecs
+    position_vecs = np.nan_to_num(position_vecs)
+    force_vecs = np.nan_to_num(force_vecs)
 
-plt.ylim([lower_percentile, upper_percentile])
-plt.xlabel("Time (s)")
-plt.ylabel("Force (a.u.)")
-plt.title("Force Vectors Over Time")
-plt.legend()
-plt.tight_layout()
-plt.show()
+    time = np.linspace(0, reacher.data.time, len(force_vecs))
 
-# Define the time window for averaging (100 ms)
-time_window = 0.1  # 100 ms
+    # plt.figure(figsize=(10, 5))
+    # for i in range(force_vecs.shape[1]):
+    #     plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
+    # lower_percentile = np.percentile(force_vecs, 1)
+    # upper_percentile = np.percentile(force_vecs, 99)
 
-# Initialize a list to store average force vectors
-average_positions = []
-average_forces = []
+    # plt.ylim([lower_percentile, upper_percentile])
+    # plt.xlabel("Time (s)")
+    # plt.ylabel("Force (a.u.)")
+    # plt.title("Force Vectors Over Time")
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
-# Iterate second by second
-for t in range(1, int(reacher.data.time) + 1):
+    # Define the time window for averaging (100 ms)
+    time_window = 0.1  # 100 ms
 
-    # Find indices corresponding to the last 100 ms of the current second
-    start_time = t - time_window
-    indices = (time > start_time) & (time <= t)
+    # Initialize a list to store average force vectors
+    average_positions = []
+    average_forces = []
 
-    # Compute the average position vector within the 100-ms period
-    avg_position_vec = np.mean(position_vecs[indices], axis=0)
-    average_positions.append(avg_position_vec)
+    # Iterate second by second
+    for t in range(1, int(reacher.data.time) + 1):
 
-    # Compute the average force vector within the 100-ms period
-    avg_force_vec = np.mean(force_vecs[indices], axis=0)
-    average_forces.append(avg_force_vec)
+        # Find indices corresponding to the last 100 ms of the current second
+        start_time = t - time_window
+        indices = (time > start_time) & (time <= t)
 
-# Convert the list to a numpy array for further analysis
-average_positions = np.array(average_positions)
-average_forces = np.array(average_forces)
+        # Compute the average position vector within the 100-ms period
+        avg_position_vec = np.mean(position_vecs[indices], axis=0)
+        average_positions.append(avg_position_vec)
 
-# Print the average position vectors for each second
-for i, avg_vec in enumerate(average_positions, start=1):
-    print(f"Average position vector for second {i}: {avg_vec}")
+        # Compute the average force vector within the 100-ms period
+        avg_force_vec = np.mean(force_vecs[indices], axis=0)
+        average_forces.append(avg_force_vec)
 
-print(average_positions)
-print(average_forces)
+    # Convert the list to a numpy array for further analysis
+    average_positions = np.array(average_positions)
+    average_forces = np.array(average_forces)
 
-plt.figure(figsize=(8, 8))
+    # print(average_positions)
+    # print(average_forces)
 
-# Print the average force vectors for each second
-for i, avg_vec in enumerate(average_forces, start=1):
-    print(f"Average force vector for second {i}: {avg_vec}")
+    plt.figure(figsize=(8, 8))
 
     # Extract x and y components from average positions and forces
     x_positions = [pos[0] for pos in average_positions]
@@ -488,11 +490,24 @@ for i, avg_vec in enumerate(average_forces, start=1):
         color="black",
     )
 
-plt.title("Convergence force field (CFF) without stimulation")
-plt.xlabel("X Position")
-plt.ylabel("Y Position")
-plt.grid(True)
-plt.axis("equal")
-plt.xlim(reacher.hand_position_stats["min"][0], reacher.hand_position_stats["max"][0])
-plt.ylim(reacher.hand_position_stats["min"][1], reacher.hand_position_stats["max"][1])
-plt.show()
+    # Calculate the convergence point (mean of positions weighted by force magnitudes)
+    force_magnitudes = np.sqrt(np.array(x_forces) ** 2 + np.array(y_forces) ** 2)
+    convergence_x = np.average(x_positions, weights=np.abs(x_forces))
+    convergence_y = np.average(y_positions, weights=np.abs(y_forces))
+
+    # Add a dot at the convergence point
+    # plt.scatter(convergence_x, convergence_y, color="red", s=100, label="Convergence Point")
+    plt.legend()
+
+    plt.title(f"Convergence force field (CFF) stimulating unit {unit_idx}")
+    plt.xlabel("X Position")
+    plt.ylabel("Y Position")
+    plt.grid(True)
+    plt.axis("equal")
+    plt.xlim(
+        reacher.hand_position_stats["min"][0], reacher.hand_position_stats["max"][0]
+    )
+    plt.ylim(
+        reacher.hand_position_stats["min"][1], reacher.hand_position_stats["max"][1]
+    )
+    plt.show()

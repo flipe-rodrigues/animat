@@ -1,4 +1,6 @@
 import copy
+import jax
+import jax.numpy as jnp
 from utils import *
 
 
@@ -20,7 +22,7 @@ class RNN:
 
     def __eq__(self, other):
         if isinstance(other, RNN):
-            return all(self.get_params() == other.get_params())
+            return jnp.all(self.get_params() == other.get_params())
         return False
 
     def init_weights(self):
@@ -29,13 +31,13 @@ class RNN:
         self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
 
     def init_biases(self):
-        self.b_h = np.zeros(self.hidden_size)
-        self.b_out = np.zeros(self.output_size)
+        self.b_h = jnp.zeros(self.hidden_size)
+        self.b_out = jnp.zeros(self.output_size)
 
     def init_state(self):
         """Reset hidden state between episodes"""
-        self.h = np.zeros(self.hidden_size)
-        self.out = np.zeros(self.output_size)
+        self.h = jnp.zeros(self.hidden_size)
+        self.out = jnp.zeros(self.output_size)
 
     def step(self, obs):
         """Compute one RNN step"""
@@ -48,7 +50,7 @@ class RNN:
         return self.out
 
     def get_params(self):
-        return np.concatenate(
+        return jnp.concatenate(
             [
                 self.W_in.flatten(),
                 self.W_h.flatten(),
@@ -65,16 +67,16 @@ class RNN:
         W_out_size = self.hidden_size * self.output_size
 
         self.W_in = params[idx : idx + W_in_size].reshape(
-            self.input_size, self.hidden_size
-        )
+            self.hidden_size, self.input_size
+        ).T
         idx += W_in_size
         self.W_h = params[idx : idx + W_h_size].reshape(
             self.hidden_size, self.hidden_size
-        )
+        ).T
         idx += W_h_size
         self.W_out = params[idx : idx + W_out_size].reshape(
-            self.hidden_size, self.output_size
-        )
+            self.output_size, self.hidden_size
+        ).T
         idx += W_out_size
 
         self.b_h = params[idx : idx + self.hidden_size]
@@ -87,67 +89,64 @@ class RNN:
 
         def extract(shape):
             nonlocal idx
-            size = np.prod(shape)
+            size = jnp.prod(jnp.array(shape))
             param = params[idx : idx + size].reshape(shape)
             idx += size
             return param
 
         new_rnn = copy.deepcopy(self)
-        new_rnn.W_in = extract((self.hidden_size, self.input_size))
-        new_rnn.W_h = extract((self.hidden_size, self.hidden_size))
-        new_rnn.W_out = extract((self.output_size, self.hidden_size))
+        new_rnn.W_in = extract((self.hidden_size, self.input_size)).T
+        new_rnn.W_h = extract((self.hidden_size, self.hidden_size)).T
+        new_rnn.W_out = extract((self.output_size, self.hidden_size)).T
         new_rnn.b_h = extract((self.hidden_size,))
         new_rnn.b_out = extract((self.output_size,))
         return new_rnn
 
-    @staticmethod
-    def from_params_static(
-        params, input_size, hidden_size, output_size, activation, alpha
-    ):
-        """Create a new RNN from flattened parameters."""
-        idx = 0
 
-        def extract(shape):
-            nonlocal idx
-            size = np.prod(shape)
-            param = params[idx : idx + size].reshape(shape)
-            idx += size
-            return param
+# JAX-compiled RNN step function for efficiency
+@jax.jit
+def rnn_step(params, hidden_state, output_state, obs, alpha, activation_fn):
+    """JAX-compatible RNN step function"""
+    idx = 0
+    
+    # Extract parameters
+    input_size = obs.shape[0]
+    hidden_size = hidden_state.shape[0]
+    output_size = output_state.shape[0]
+    
+    W_in_size = input_size * hidden_size
+    W_h_size = hidden_size * hidden_size
+    W_out_size = hidden_size * output_size
+    
+    W_in = params[idx:idx + W_in_size].reshape((hidden_size, input_size))
+    idx += W_in_size
+    
+    W_h = params[idx:idx + W_h_size].reshape((hidden_size, hidden_size))
+    idx += W_h_size
+    
+    W_out = params[idx:idx + W_out_size].reshape((output_size, hidden_size))
+    idx += W_out_size
+    
+    b_h = params[idx:idx + hidden_size]
+    idx += hidden_size
+    
+    b_out = params[idx:idx + output_size]
+    
+    # Update hidden state
+    new_hidden = (1 - alpha) * hidden_state + alpha * activation_fn(
+        jnp.dot(W_in, obs) + jnp.dot(W_h, hidden_state) + b_h
+    )
+    
+    # Update output
+    new_output = (1 - alpha) * output_state + alpha * logistic(
+        jnp.dot(W_out, new_hidden) + b_out
+    )
+    
+    return new_hidden, new_output
 
-        new_rnn = RNN(input_size, hidden_size, output_size, activation, alpha)
-        new_rnn.W_in = extract((input_size, hidden_size))
-        new_rnn.W_h = extract((hidden_size, hidden_size))
-        new_rnn.W_out = extract((hidden_size, output_size))
-        new_rnn.b_h = extract((hidden_size,))
-        new_rnn.b_out = extract((output_size,))
-        return new_rnn
 
-    @staticmethod
-    def recombine(p1, p2):
-        child = RNN(
-            p1.input_size,
-            p1.hidden_size,
-            p1.output_size,
-            p1.activation,
-            p1.alpha,
-        )
-        child.W_in = RNN.recombine_matrices(p1.W_in, p2.W_in)
-        child.W_h = RNN.recombine_matrices(p1.W_h, p2.W_h)
-        child.W_out = RNN.recombine_matrices(p1.W_out, p2.W_out)
-        child.b_h = RNN.recombine_matrices(p1.b_h, p2.b_h)
-        child.b_out = RNN.recombine_matrices(p1.b_out, p2.b_out)
-        return child
-
-    @staticmethod
-    def recombine_matrices(A, B):
-        mask = np.random.rand(*A.shape) > 0.5
-        return np.where(mask, A, B)
-
-    def mutate(self, rate):
-        mutant = copy.deepcopy(self)
-        mutant.W_in += self.init_fcn(mutant.input_size, mutant.hidden_size) * rate
-        mutant.W_h += self.init_fcn(mutant.hidden_size, mutant.hidden_size) * rate
-        mutant.W_out += self.init_fcn(mutant.hidden_size, mutant.output_size) * rate
-        mutant.b_h += np.random.randn(mutant.hidden_size) * rate
-        mutant.b_out += np.random.randn(mutant.output_size) * rate
-        return mutant
+# Vectorized RNN step for parallel environments
+@jax.vmap
+def parallel_rnn_step(params, hidden_states, output_states, observations, alpha, activation_fn):
+    """Vectorized RNN step for batch processing"""
+    return rnn_step(params, hidden_states, output_states, observations, alpha, activation_fn)

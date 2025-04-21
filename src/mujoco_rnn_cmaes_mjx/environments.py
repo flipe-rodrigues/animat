@@ -9,10 +9,15 @@
 """
 
 import pickle
+import numpy as np
+import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import mujoco
+from functools import partial
 from tqdm import tqdm
-from plants import SequentialReacher
-from networks import RNN
+from plants import SequentialReacher, get_obs_jit, get_obs_batch
+from networks import RNN, rnn_step, parallel_rnn_step
 from utils import *
 
 
@@ -40,6 +45,12 @@ class SequentialReachingEnv:
         self.num_targets = num_targets
         self.loss_weights = loss_weights
         self.logger = None
+        
+        # Precompute JAX arrays for normalization
+        self.target_mean = jnp.array(self.plant.hand_position_stats["mean"].values)
+        self.target_std = jnp.array(self.plant.hand_position_stats["std"].values)
+        self.sensor_mean = jnp.array(self.plant.sensor_stats["mean"].values)
+        self.sensor_std = jnp.array(self.plant.sensor_stats["std"].values)
 
     """
     .##........#######...######..
@@ -117,7 +128,7 @@ class SequentialReachingEnv:
         np.random.seed(seed)
 
         rnn.init_state()
-        self.plant.reset()
+        mjx_data = self.plant.reset()
 
         target_positions = self.plant.sample_targets(self.num_targets)
         target_durations = truncated_exponential(
@@ -131,21 +142,40 @@ class SequentialReachingEnv:
         total_reward = 0
 
         target_idx = 0
-        self.plant.update_target(target_positions[target_idx])
+        mjx_data = self.plant.update_target_mjx(mjx_data, target_positions[target_idx])
 
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
 
-            context, feedback = self.plant.get_obs()
-            obs = np.concatenate([context, feedback])
-            action = rnn.step(obs)
-            self.plant.step(action)
-            hand_position = self.plant.get_hand_pos()
+            # Get observation
+            obs = get_obs_jit(
+                mjx_data, 
+                self.target_mean,
+                self.target_std,
+                self.sensor_mean,
+                self.sensor_std
+            )
+            
+            # RNN step
+            rnn.h, rnn.out = rnn_step(
+                rnn.get_params(),
+                rnn.h,
+                rnn.out,
+                obs,
+                rnn.alpha,
+                rnn.activation
+            )
+            action = rnn.out
+            
+            # Environment step
+            mjx_data = self.plant.step_mjx(mjx_data, action)
+            
+            hand_position = self.plant.get_hand_pos(mjx_data)
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)
             euclidean_distance = l2_norm(target_position - hand_position)
-            energy = np.mean(action)
+            energy = jnp.mean(action)
             entropy = action_entropy(action)
 
             reward = -(
@@ -159,8 +189,8 @@ class SequentialReachingEnv:
 
             if log:
                 self.log(
-                    time=self.plant.data.time,
-                    sensors=feedback,
+                    time=mjx_data.time,
+                    sensors=mjx_data.sensordata,
                     target_position=target_position,
                     hand_position=hand_position,
                     manhattan_distance=manhattan_distance,
@@ -171,73 +201,203 @@ class SequentialReachingEnv:
                     fitness=total_reward / trial_duration,
                 )
 
-            if self.plant.data.time > target_offset_times[target_idx]:
+            if mjx_data.time > target_offset_times[target_idx]:
                 target_idx += 1
                 if target_idx < self.num_targets:
-                    self.plant.update_target(target_positions[target_idx])
+                    mjx_data = self.plant.update_target_mjx(mjx_data, target_positions[target_idx])
 
         self.plant.close()
 
         return total_reward / trial_duration
 
     """
-    ..######..########.####.##.....##.##.....##.##..........###....########.########
-    .##....##....##.....##..###...###.##.....##.##.........##.##......##....##......
-    .##..........##.....##..####.####.##.....##.##........##...##.....##....##......
-    ..######.....##.....##..##.###.##.##.....##.##.......##.....##....##....######..
-    .......##....##.....##..##.....##.##.....##.##.......#########....##....##......
-    .##....##....##.....##..##.....##.##.....##.##.......##.....##....##....##......
-    ..######.....##....####.##.....##..#######..########.##.....##....##....########
+    .########.....###....########.....###....##.......##.......########.##......
+    .##.....##...##.##...##.....##...##.##...##.......##.......##.......##......
+    .##.....##..##...##..##.....##..##...##..##.......##.......##.......##......
+    .########..##.....##.########..##.....##.##.......##.......######...##......
+    .##........#########.##...##...#########.##.......##.......##.......##......
+    .##........##.....##.##....##..##.....##.##.......##.......##.......##......
+    .##........##.....##.##.....##.##.....##.########.########.########.########
     """
 
-    def stimulate(self, rnn, units, action_modifier=1, delay=1, seed=0, render=False):
-        """Evaluate fitness of a given RNN policy"""
-        np.random.seed(seed)
-
-        rnn.init_state()
-        self.plant.reset()
-
-        if render:
-            self.plant.render()
-
-        self.plant.model.eq_active0 = 1
-
-        force_data = {"position": [], "force": []}
-
-        total_delay = delay
-
-        grid_positions = np.array(self.plant.grid_positions.copy())
-        grid_pos_idx = 0
-        self.plant.update_nail(grid_positions[grid_pos_idx])
+    def evaluate_parallel(self, rnn_params_batch, num_envs, seeds=None):
+        """Evaluate fitness of multiple RNN policies in parallel"""
+        if seeds is None:
+            seeds = jnp.arange(num_envs)
+        
+        # Get parameters for the RNN setup from the first policy
+        # We need these dimensions to set up the network states
+        first_params = rnn_params_batch[0]
+        # Calculate hidden and output sizes based on parameters size
+        input_size = 3 + self.plant.num_sensors  # Consistent with RNN initialization
+        total_params = first_params.shape[0]
+        
+        # Determine size of intermediate matrices
+        # This is based on RNN param layout in networks.py
+        param_size = total_params
+        hidden_size = int(jnp.sqrt(
+            -input_size + jnp.sqrt(input_size**2 + 4*param_size) 
+        ) / 2)
+        output_size = self.plant.num_actuators
+        
+        # Get alpha value (same for all environments)
+        alpha = self.plant.mj_model.opt.timestep / 10e-3  # Same as in main.py
+        
+        # Initialize RNN states - shape (num_envs, hidden_size)
+        hidden_states = jnp.zeros((num_envs, hidden_size))
+        output_states = jnp.zeros((num_envs, output_size))
+        
+        # Reset environments
+        reset_fn = jax.vmap(lambda _: self.plant.reset_mjx_data(self.plant.mjx_model))
+        mjx_data_batch = reset_fn(jnp.arange(num_envs))
+        
+        # Prepare target positions and durations
+        target_positions_batch = self.plant.get_targets_batch(num_envs, self.num_targets)
+        
+        # Use the same random key for all environments
+        key = jax.random.PRNGKey(42)
+        
+        # Generate target durations for all environments - use JAX for consistency
+        def get_durations(idx):
+            # Create a different key for each environment using idx as the seed
+            subkey = jax.random.fold_in(key, idx)
+            durations = jax.random.exponential(
+                subkey, 
+                shape=(self.num_targets,)
+            ) * self.target_duration["mean"]
+            # Clip to min/max bounds
+            return jnp.clip(
+                durations, 
+                self.target_duration["min"], 
+                self.target_duration["max"]
+            )
+        
+        target_durations_batch = jax.vmap(get_durations)(jnp.arange(num_envs))
+        target_offset_times_batch = jnp.cumsum(target_durations_batch, axis=1)
+        trial_durations = jnp.sum(target_durations_batch, axis=1)
+        
+        # Initialize target indices and rewards
+        target_indices = jnp.zeros(num_envs, dtype=jnp.int32)
+        total_rewards = jnp.zeros(num_envs)
+        
+        # Set initial targets
+        initial_targets = target_positions_batch[:, 0]
+        mjx_data_batch = self.plant.batch_update_target(mjx_data_batch, initial_targets)
+        
+        # Pre-broadcast the normalization arrays to match batch size
+        # This ensures all arrays have the same batch dimension
+        target_mean_batch = jnp.tile(self.target_mean, (num_envs, 1))
+        target_std_batch = jnp.tile(self.target_std, (num_envs, 1))
+        sensor_mean_batch = jnp.tile(self.sensor_mean, (num_envs, 1))
+        sensor_std_batch = jnp.tile(self.sensor_std, (num_envs, 1))
+        
+        # Define evaluation loop
+        def eval_step(carry, _):
+            mjx_data_b, hidden_s, output_s, target_idx, total_r = carry
             
-        while grid_pos_idx < len(grid_positions) - 1:
-            if render:
-                self.plant.render()
-
-            context, feedback = self.plant.get_obs()
-            obs = np.concatenate([context, feedback])
-
-            # Stimulate the specified units
-            rnn.h[units] = rnn.activation(np.inf)
-
-            if self.plant.data.time > total_delay:
-                grid_pos_idx += 1
-                self.plant.update_nail(grid_positions[grid_pos_idx])
-                total_delay += delay
-
-            action = rnn.step(obs) * action_modifier
-            self.plant.step(action)
-            force = self.plant.data.efc_force.copy()
-
-            if force.shape != (3,):
-                force = np.full(3, np.nan)
-
-            force_data["position"].append(grid_positions[grid_pos_idx])
-            force_data["force"].append(force)
-
-        self.plant.close()
-
-        return force_data
+            # Get observations - Now using properly broadcasted arrays
+            observations = get_obs_batch(
+                mjx_data_b,
+                target_mean_batch,
+                target_std_batch,
+                sensor_mean_batch,
+                sensor_std_batch
+            )
+            
+            # RNN step - must use tanh for activation as in main.py
+            new_hidden_s, new_output_s = parallel_rnn_step(
+                rnn_params_batch, 
+                hidden_s,
+                output_s,
+                observations,
+                alpha,
+                tanh
+            )
+            
+            # Environment step
+            new_mjx_data_b = self.plant.batch_step(self.plant.mjx_model, mjx_data_b, new_output_s)
+            
+            # Calculate rewards
+            # Use JAX vmap to get hand positions for all environments
+            hand_positions = jax.vmap(lambda data: data.geom_xpos[self.plant.hand_id])(new_mjx_data_b)
+            
+            # Get current targets for each environment (vectorized)
+            # Use advanced indexing to get the current targets
+            current_targets = jnp.take_along_axis(
+                target_positions_batch, 
+                target_idx[:, jnp.newaxis, jnp.newaxis], 
+                axis=1
+            ).squeeze(axis=1)
+            
+            # Calculate distances and energies
+            manhattan_distances = jax.vmap(l1_norm)(current_targets - hand_positions)
+            euclidean_distances = jax.vmap(l2_norm)(current_targets - hand_positions)
+            energies = jnp.mean(new_output_s, axis=1)
+            entropies = jax.vmap(action_entropy)(new_output_s)
+            
+            # Calculate rewards
+            rewards = -(
+                euclidean_distances * self.loss_weights["euclidean"]
+                + manhattan_distances * self.loss_weights["manhattan"]
+                + energies * entropies * self.loss_weights["energy"]
+                + jax.vmap(lambda p: l1_norm(p * self.loss_weights["ridge"]))(rnn_params_batch)
+                + jax.vmap(lambda p: l2_norm(p * self.loss_weights["lasso"]))(rnn_params_batch)
+            )
+            
+            # Update total rewards
+            new_total_r = total_r + rewards
+            
+            # Determine if we need to update targets
+            # Compare current time to target offset times for each environment
+            times = new_mjx_data_b.time
+            
+            # Check if we need to advance to the next target for each environment
+            should_advance = (times > jnp.take_along_axis(
+                target_offset_times_batch,
+                target_idx[:, jnp.newaxis],
+                axis=1
+            ).squeeze()) & (target_idx < self.num_targets - 1)
+            
+            # Increment target indices where needed
+            new_target_idx = target_idx + jnp.where(should_advance, 1, 0)
+            
+            # Update targets where indices have changed
+            # Only if targets should be updated
+            next_targets = jnp.take_along_axis(
+                target_positions_batch,
+                new_target_idx[:, jnp.newaxis, jnp.newaxis],
+                axis=1
+            ).squeeze(axis=1)
+            
+            # Create new mocap positions with updated targets
+            new_mocap_pos = new_mjx_data_b.mocap_pos.at[:, 0].set(
+                jnp.where(
+                    should_advance[:, jnp.newaxis],
+                    next_targets,
+                    new_mjx_data_b.mocap_pos[:, 0]
+                )
+            )
+            
+            # Update the MJX data with new targets
+            new_mjx_data_b = new_mjx_data_b.replace(mocap_pos=new_mocap_pos)
+            
+            return (new_mjx_data_b, new_hidden_s, new_output_s, new_target_idx, new_total_r), None
+        
+        # Maximum number of steps
+        max_timesteps = int(jnp.max(trial_durations) / self.plant.mj_model.opt.timestep) + 1
+        
+        # Run evaluation loop
+        (final_mjx_data, _, _, _, final_rewards), _ = jax.lax.scan(
+            eval_step,
+            (mjx_data_batch, hidden_states, output_states, target_indices, total_rewards),
+            None,
+            length=max_timesteps
+        )
+        
+        # Normalize rewards by trial duration
+        normalized_rewards = final_rewards / trial_durations
+        
+        return normalized_rewards
 
     """
     .########..##........#######..########

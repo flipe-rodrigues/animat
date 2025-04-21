@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<mujoco model="2joint_4muscle_arm">
+  <option timestep="0.01" integrator="implicit"/>
+  
+  <default>
+    <joint damping="0.1"/>
+    <muscle ctrllimited="true" ctrlrange="0 1"/>
+    <geom rgba="0.8 0.3 0.3 1"/>
+  </default>
+
+  <worldbody>
+    <!-- Ground plane -->
+    <geom name="floor" pos="0 0 -0.5" size="4 4 0.1" type="plane" rgba="0.5 0.5 0.5 1"/>
+    
+    <!-- Base of the arm -->
+    <body name="base" pos="0 0 0">
+      <geom name="base" type="sphere" size="0.08" rgba="0.5 0.5 0.5 1"/>
+      <joint name="root" type="free" limited="false"/>
+      
+      <!-- First arm segment -->
+      <body name="upper_arm" pos="0 0 0">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-90 90"/>
+        <geom name="upper_arm" type="capsule" size="0.04" fromto="0 0 0 0.4 0 0"/>
+        
+        <!-- Muscle attachment sites for upper arm -->
+        <site name="shoulder_flexor_origin" pos="0 0.05 0" size="0.02" rgba="0 0 1 1"/>
+        <site name="shoulder_extensor_origin" pos="0 -0.05 0" size="0.02" rgba="1 0 0 1"/>
+        <site name="shoulder_flexor_insertion" pos="0.2 0.05 0" size="0.02" rgba="0 0 1 1"/>
+        <site name="shoulder_extensor_insertion" pos="0.2 -0.05 0" size="0.02" rgba="1 0 0 1"/>
+        <site name="elbow_flexor_origin" pos="0.4 0.05 0" size="0.02" rgba="0 1 0 1"/>
+        <site name="elbow_extensor_origin" pos="0.4 -0.05 0" size="0.02" rgba="0.5 0 0.5 1"/>
+        
+        <!-- Second arm segment -->
+        <body name="forearm" pos="0.4 0 0">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="-90 90"/>
+          <geom name="forearm" type="capsule" size="0.04" fromto="0 0 0 0.4 0 0"/>
+          
+          <!-- Muscle attachment sites for forearm -->
+          <site name="elbow_flexor_insertion" pos="0.2 0.05 0" size="0.02" rgba="0 1 0 1"/>
+          <site name="elbow_extensor_insertion" pos="0.2 -0.05 0" size="0.02" rgba="0.5 0 0.5 1"/>
+          
+          <!-- End effector -->
+          <site name="end_effector" pos="0.4 0 0" size="0.05" rgba="0 0.8 0 1"/>
+        </body>
+      </body>
+    </body>
+    
+    <!-- Target site -->
+    <site name="target" pos="0.5 0 0.5" size="0.05" rgba="0.8 0 0.8 1"/>
+  </worldbody>
+
+  <tendon>
+    <!-- Shoulder flexor muscle -->
+    <spatial name="shoulder_flexor">
+      <site site="shoulder_flexor_origin"/>
+      <geom geom="upper_arm"/>
+      <site site="shoulder_flexor_insertion"/>
+    </spatial>
+    
+    <!-- Shoulder extensor muscle -->
+    <spatial name="shoulder_extensor">
+      <site site="shoulder_extensor_origin"/>
+      <geom geom="upper_arm"/>
+      <site site="shoulder_extensor_insertion"/>
+    </spatial>
+    
+    <!-- Elbow flexor muscle -->
+    <spatial name="elbow_flexor">
+      <site site="elbow_flexor_origin"/>
+      <geom geom="forearm"/>
+      <site site="elbow_flexor_insertion"/>
+    </spatial>
+    
+    <!-- Elbow extensor muscle -->
+    <spatial name="elbow_extensor">
+      <site site="elbow_extensor_origin"/>
+      <geom geom="forearm"/>
+      <site site="elbow_extensor_insertion"/>
+    </spatial>
+  </tendon>
+
+  <actuator>
+    <muscle name="shoulder_flexor" tendon="shoulder_flexor" />
+    <muscle name="shoulder_extensor" tendon="shoulder_extensor" />
+    <muscle name="elbow_flexor" tendon="elbow_flexor" />
+    <muscle name="elbow_extensor" tendon="elbow_extensor" />
+  </actuator>
+
+  <sensor>
+    <!-- Muscle length sensors -->
+    <muscle name="shoulder_flexor_length" muscle="shoulder_flexor" type="length"/>
+    <muscle name="shoulder_extensor_length" muscle="shoulder_extensor" type="length"/>
+    <muscle name="elbow_flexor_length" muscle="elbow_flexor" type="length"/>
+    <muscle name="elbow_extensor_length" muscle="elbow_extensor" type="length"/>
+    
+    <!-- Muscle velocity sensors -->
+    <muscle name="shoulder_flexor_velocity" muscle="shoulder_flexor" type="velocity"/>
+    <muscle name="shoulder_extensor_velocity" muscle="shoulder_extensor" type="velocity"/>
+    <muscle name="elbow_flexor_velocity" muscle="elbow_flexor" type="velocity"/>
+    <muscle name="elbow_extensor_velocity" muscle="elbow_extensor" type="velocity"/>
+    
+    <!-- Muscle force sensors -->
+    <muscle name="shoulder_flexor_force" muscle="shoulder_flexor" type="force"/>
+    <muscle name="shoulder_extensor_force" muscle="shoulder_extensor" type="force"/>
+    <muscle name="elbow_flexor_force" muscle="elbow_flexor" type="force"/>
+    <muscle name="elbow_extensor_force" muscle="elbow_extensor" type="force"/>
+    
+    <!-- End effector position sensor -->
+    <framepos name="end_effector_pos" objtype="site" objname="end_effector"/>
+    
+    <!-- Target position sensor -->
+    <framepos name="target_pos" objtype="site" objname="target"/>
+  </sensor>
+</mujoco>
