@@ -141,6 +141,7 @@ class SequentialReachingEnv:
             obs = np.concatenate([context, feedback])
             action = rnn.step(obs)
             self.plant.step(action)
+            
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)

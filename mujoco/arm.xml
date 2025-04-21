@@ -1,6 +1,13 @@
 <mujoco model="two-joint-limb">
 
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <global offwidth="2560" offheight="1440" elevation="-45" azimuth="120" />
+  </visual>
+
   <asset>
+    <texture type="skybox" builtin="gradient" rgb1=".3 .5 .7" rgb2="0 0 0" width="32" height="512" />
     <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".1 .2 .3"
       rgb2=".2 .3 .4" />
     <material name="grid" texture="grid" texrepeat="10 10" texuniform="true" reflectance=".2" />
@@ -12,10 +19,13 @@
   </default>
 
   <worldbody>
-    <light name="light" pos="0 0 5" diffuse=".1 .1 .1" />
+    <!-- LIGHTS -->
+    <light name="spotlight" mode="targetbodycom" target="upper_arm" diffuse=".5 .5 .5"
+      specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30" />
+    <light name="top" pos="0 0 2" mode="trackcom" />
 
-    <!-- HORIZONTAL PLANE-->
-    <geom type="plane" pos="0 0 -.1" size="10 10 .01" material="grid" />
+    <!-- FLOOR-->
+    <geom name="floor" type="plane" pos="0 0 -.1" size="0 0 .01" material="grid" condim="3" />
 
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
@@ -104,10 +114,11 @@
   </tendon>
 
   <actuator>
-    <muscle name="deltoid" tendon="deltoid_tendon" ctrlrange="0 1" force="100" />
-    <muscle name="latissimus" tendon="latissimus_tendon" ctrlrange="0 1" force="100" />
-    <muscle name="biceps" tendon="biceps_tendon" ctrlrange="0 1" force="100" />
-    <muscle name="triceps" tendon="triceps_tendon" ctrlrange="0 1" force="100" />
+    <muscle name="deltoid" tendon="deltoid_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+    <muscle name="latissimus" tendon="latissimus_tendon" ctrlrange="0 1" force="100"
+      timeconst=".01 .04" />
+    <muscle name="biceps" tendon="biceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+    <muscle name="triceps" tendon="triceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
   </actuator>
 
   <sensor>

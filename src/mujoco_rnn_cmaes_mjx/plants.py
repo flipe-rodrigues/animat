@@ -38,13 +38,6 @@ class SequentialReacher:
         # Get the site ID using the name of your end effector
         self.hand_id = self.mj_model.geom("hand").id
 
-        # Get the hand's default mass value
-        self.hand_default_mass = self.mj_model.body_mass[self.hand_id]
-
-        self.hand_force_id = mujoco.mj_name2id(
-            self.mj_model, mujoco.mjtObj.mjOBJ_SENSOR, "hand_force"
-        )
-
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
         with open(sensor_stats_path, "rb") as f:
