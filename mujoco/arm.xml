@@ -20,7 +20,7 @@
 
   <worldbody>
     <!-- LIGHTS -->
-    <light name="spotlight" mode="targetbodycom" target="upper_arm" diffuse=".5 .5 .5"
+    <light name="spotlight" mode="targetbodycom" target="hand" diffuse=".5 .5 .5"
       specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30" />
     <light name="top" pos="0 0 2" mode="trackcom" />
 
