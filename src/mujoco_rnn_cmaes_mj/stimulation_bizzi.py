@@ -50,12 +50,15 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "../../models"
-gen_idx = 9999  # Specify the generation index you want to load
+gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 # model_file = "optimizer_gen_5000_tau10_rnn50.pkl"
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
+
+# Swap input weights at indices 1 and 2 in best_rnn
+best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 
 # %%
 """
@@ -73,9 +76,6 @@ best_rnn = rnn.from_params(optimizer.mean)
 # plt.title("Input Weights")
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
-
-# Swap input weights at indices 1 and 2 in best_rnn
-best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 env.evaluate(best_rnn, seed=0, render=True, log=True)
 env.plot()
 
