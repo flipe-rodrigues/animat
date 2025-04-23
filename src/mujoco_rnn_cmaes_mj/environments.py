@@ -205,7 +205,7 @@ class SequentialReachingEnv:
 
         force_data = {"position": [], "force": []}
 
-        total_delay = delay
+        total_delay = 0
 
         grid_positions = np.array(self.plant.grid_positions.copy())
         grid_pos_idx = 0
@@ -219,8 +219,10 @@ class SequentialReachingEnv:
             obs = np.concatenate([context, feedback])
 
             # Stimulate the specified units
-            rnn.h[units] = rnn.activation(np.inf)
+            if self.plant.data.time > total_delay - delay / 2:
+                rnn.h[units] = rnn.activation(np.inf)
 
+            # Update nail position
             if self.plant.data.time > total_delay:
                 grid_pos_idx += 1
                 self.plant.update_nail(grid_positions[grid_pos_idx])

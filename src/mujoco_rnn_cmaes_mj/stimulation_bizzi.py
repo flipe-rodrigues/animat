@@ -151,7 +151,7 @@ plt.show()
 ..##..##...###.##........##.....##....##.......##....##.##........##.....##.##....##.##......
 .####.##....##.##.........#######.....##........######..##........##.....##..######..########
 """
-num_targets = 100
+num_targets = 1000
 
 # Sample 10 target positions from the reacher
 sampled_targets = reacher.sample_targets(num_targets)
@@ -190,7 +190,7 @@ fig = go.Figure(
             z=selected_projections[:, 2],
             mode="markers",
             marker=dict(
-                size=3,
+                size=2,
                 color="black",
                 opacity=0.8,
             ),
@@ -214,7 +214,7 @@ fig = go.Figure(
             z=pca_projections[:, 2],
             mode="markers",
             marker=dict(
-                size=3,
+                size=2,
                 color=pca_projections[:, 0],  # Color by the first principal component
                 colorscale="Viridis",
                 opacity=0.8,
@@ -370,8 +370,9 @@ from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
 from utils import *
+from sklearn.decomposition import PCA
 
-reacher = SequentialReacher(plant_xml_file="arm_model.xml")
+reacher = SequentialReacher(plant_xml_file="arm.xml")
 print("Number of sensors:", reacher.num_sensors)
 print("Number of actuators:", reacher.num_actuators)
 
@@ -403,8 +404,8 @@ with open(os.path.join(models_dir, model_file), "rb") as f:
 best_rnn = rnn.from_params(optimizer.mean)
 
 # Zero out the first 3 columns of the input weights
-# rnn.W_in[:, :3] = 0
-rnn.W_in[:, :] = 0
+rnn.W_in[:, :3] = 0
+# rnn.W_in[:, :] = 0
 
 for unit_idx in range(0, rnn.hidden_size):
 
@@ -427,33 +428,46 @@ for unit_idx in range(0, rnn.hidden_size):
 
     time = np.linspace(0, reacher.data.time, len(force_vecs))
 
-    # plt.figure(figsize=(10, 5))
-    # for i in range(force_vecs.shape[1]):
-    #     plt.plot(time[time > 1], force_vecs[time > 1, i], label=f"Force Component {i+1}")
-    # lower_percentile = np.percentile(force_vecs, 1)
-    # upper_percentile = np.percentile(force_vecs, 99)
-
-    # plt.ylim([lower_percentile, upper_percentile])
-    # plt.xlabel("Time (s)")
-    # plt.ylabel("Force (a.u.)")
-    # plt.title("Force Vectors Over Time")
-    # plt.legend()
-    # plt.tight_layout()
-    # plt.show()
+    if unit_idx == 0:
+        plt.figure(figsize=(25, 5))
+        for i in range(force_vecs.shape[1] - 1):
+            plt.plot(time, force_vecs[:, i], label=f"Force Component {i+1}")
+        for t in np.arange(0.5, reacher.data.time, 1.0):
+            plt.axvline(x=t, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
+        lower_percentile = np.percentile(force_vecs, 1)
+        upper_percentile = np.percentile(force_vecs, 99)
+        plt.ylim([lower_percentile, upper_percentile])
+        plt.xlabel("Time (s)")
+        plt.ylabel("Force (a.u.)")
+        plt.title("Force Vectors Over Time")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
     # Define the time window for averaging (100 ms)
     time_window = 0.1  # 100 ms
 
     # Initialize a list to store average force vectors
     average_positions = []
-    average_forces = []
+    rest_average_forces = []
+    stim_average_forces = []
 
     # Iterate second by second
     for t in range(1, int(reacher.data.time) + 1):
 
         # Find indices corresponding to the last 100 ms of the current second
+        start_time = t - .5 - time_window
+        stop_time = t - .5
+        indices = (time > start_time) & (time <= stop_time)
+
+        # Compute the average force vector within the 100-ms period
+        avg_force_vec = np.mean(force_vecs[indices], axis=0)
+        rest_average_forces.append(avg_force_vec)
+
+        # Find indices corresponding to the last 100 ms of the current second
         start_time = t - time_window
-        indices = (time > start_time) & (time <= t)
+        stop_time = t
+        indices = (time > start_time) & (time <= stop_time)
 
         # Compute the average position vector within the 100-ms period
         avg_position_vec = np.mean(position_vecs[indices], axis=0)
@@ -461,22 +475,24 @@ for unit_idx in range(0, rnn.hidden_size):
 
         # Compute the average force vector within the 100-ms period
         avg_force_vec = np.mean(force_vecs[indices], axis=0)
-        average_forces.append(avg_force_vec)
+        stim_average_forces.append(avg_force_vec)
 
     # Convert the list to a numpy array for further analysis
     average_positions = np.array(average_positions)
-    average_forces = np.array(average_forces)
+    rest_average_forces = np.array(rest_average_forces)
+    stim_average_forces = np.array(stim_average_forces)
 
-    # print(average_positions)
-    # print(average_forces)
+    # print(average_positions.shape)
+    # print(rest_average_forces.shape)
+    # print(stim_average_forces.shape)
 
     plt.figure(figsize=(8, 8))
 
     # Extract x and y components from average positions and forces
     x_positions = [pos[0] for pos in average_positions]
     y_positions = [pos[1] for pos in average_positions]
-    x_forces = [force[0] for force in average_forces]
-    y_forces = [force[1] for force in average_forces]
+    x_forces = [force[0] for force in stim_average_forces]
+    y_forces = [force[1] for force in stim_average_forces]
 
     # Plot the 2D vector field
     plt.quiver(
@@ -487,7 +503,33 @@ for unit_idx in range(0, rnn.hidden_size):
         angles="xy",
         scale_units="xy",
         scale=500,
+        linewidth=1,
+        color="red",
+        edgecolor="red",
+        facecolor='none',
+        label="Stimulated",
+    )
+
+    # Extract x and y components from average positions and forces
+    x_positions = [pos[0] for pos in average_positions]
+    y_positions = [pos[1] for pos in average_positions]
+    x_forces = [force[0] for force in rest_average_forces]
+    y_forces = [force[1] for force in rest_average_forces]
+
+    # Plot the 2D vector field
+    plt.quiver(
+        x_positions,
+        y_positions,
+        x_forces,
+        y_forces,
+        angles="xy",
+        scale_units="xy",
+        scale=500,
+        linewidth=1,
         color="black",
+        edgecolor="black",
+        facecolor='none',
+        label="Rest",
     )
 
     # Calculate the convergence point (mean of positions weighted by force magnitudes)

@@ -6,7 +6,7 @@ from utils import *
 
 
 class SequentialReacher:
-    def __init__(self, plant_xml_file="arm_model.xml"):
+    def __init__(self, plant_xml_file="arm.xml"):
         """Initialize Mujoco simulation"""
 
         mj_dir = os.path.join(get_root_path(), "mujoco")
