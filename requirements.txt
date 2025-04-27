@@ -1,4 +1,10 @@
 mujoco
-torch
+mujoco-mjx
 numpy
 matplotlib
+pandas
+scipy
+scikit-learn
+scikit-image
+seaborn
+mediapy
