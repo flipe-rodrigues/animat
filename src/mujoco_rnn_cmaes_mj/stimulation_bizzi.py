@@ -404,8 +404,22 @@ with open(os.path.join(models_dir, model_file), "rb") as f:
 best_rnn = rnn.from_params(optimizer.mean)
 
 # Zero out the first 3 columns of the input weights
-rnn.W_in[:, :3] = 0
+# rnn.W_in[:, :3] = 0
 # rnn.W_in[:, :] = 0
+
+num_targets = 25
+sampled_targets = reacher.sample_targets(num_targets)
+x_coords = sampled_targets[:, 0]
+y_coords = sampled_targets[:, 1]
+
+# Plot the x and z coordinates
+plt.figure(figsize=(6, 6))
+plt.scatter(x_coords, y_coords, c="red", s=25, alpha=0.7)
+plt.title("Sampled Targets: X vs Z Coordinates")
+plt.xlabel("X Coordinate")
+plt.ylabel("Z Coordinate")
+plt.grid(True)
+plt.show()
 
 for unit_idx in range(0, rnn.hidden_size):
 
@@ -415,7 +429,7 @@ for unit_idx in range(0, rnn.hidden_size):
         action_modifier=1,
         delay=1,
         seed=0,
-        render=False,
+        render=True if unit_idx == 0 else False,
     )
 
     # Plot force vectors over time

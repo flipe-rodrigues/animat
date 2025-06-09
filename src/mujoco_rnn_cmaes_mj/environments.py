@@ -201,6 +201,7 @@ class SequentialReachingEnv:
         if render:
             self.plant.render()
 
+        # Turn on the "nail"
         self.plant.model.eq_active0 = 1
 
         force_data = {"position": [], "force": []}
@@ -210,7 +211,11 @@ class SequentialReachingEnv:
         grid_positions = np.array(self.plant.grid_positions.copy())
         grid_pos_idx = 0
         self.plant.update_nail(grid_positions[grid_pos_idx])
-            
+        
+        # Update the target position
+        target_position = self.plant.sample_targets(1)
+        self.plant.update_target(target_position)
+
         while grid_pos_idx < len(grid_positions) - 1:
             if render:
                 self.plant.render()
