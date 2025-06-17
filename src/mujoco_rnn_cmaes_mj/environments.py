@@ -8,7 +8,6 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 
-import pickle
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from plants import SequentialReacher
@@ -246,6 +245,123 @@ class SequentialReachingEnv:
         self.plant.close()
 
         return force_data
+
+    """
+    .########.########.##.......########..##.....##....###....##....##
+    .##.......##.......##.......##.....##.###...###...##.##...###...##
+    .##.......##.......##.......##.....##.####.####..##...##..####..##
+    .######...######...##.......##.....##.##.###.##.##.....##.##.##.##
+    .##.......##.......##.......##.....##.##.....##.#########.##..####
+    .##.......##.......##.......##.....##.##.....##.##.....##.##...###
+    .##.......########.########.########..##.....##.##.....##.##....##
+    """
+    
+    def feldman(self, rnn, seed=0, render=False, log=False):
+        """Evaluate fitness of a given RNN policy"""
+        np.random.seed(seed)
+
+        rnn.init_state()
+        self.plant.reset()
+
+        target_positions = self.plant.sample_targets(self.num_targets)
+        target_durations = truncated_exponential(
+            mu=self.target_duration["mean"],
+            a=self.target_duration["min"],
+            b=self.target_duration["max"],
+            size=self.num_targets,
+        )
+        target_offset_times = target_durations.cumsum()
+        trial_duration = target_durations.sum()
+        total_reward = 0
+
+        target_idx = 0
+        self.plant.update_target(target_positions[target_idx])
+
+        while target_idx < self.num_targets:
+            if render:
+                self.plant.render()
+
+            context, feedback = self.plant.get_obs()
+            obs = np.concatenate([context, feedback])
+            action = rnn.step(obs)
+            self.plant.step(action)
+            
+            hand_position = self.plant.get_hand_pos()
+            target_position = target_positions[target_idx]
+            manhattan_distance = l1_norm(target_position - hand_position)
+            euclidean_distance = l2_norm(target_position - hand_position)
+            energy = np.mean(action)
+            entropy = action_entropy(action)
+
+            reward = -(
+                euclidean_distance * self.loss_weights["euclidean"]
+                + manhattan_distance * self.loss_weights["manhattan"]
+                + energy * entropy * self.loss_weights["energy"]
+                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
+                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
+            )
+            total_reward += reward
+
+            # Set mass of pulley weight
+            if self.plant.data.time < 5:
+                cylinder_mass = .25
+            elif self.plant.data.time < 10:
+                cylinder_mass = .2
+            elif self.plant.data.time < 15:
+                cylinder_mass = .25
+            elif self.plant.data.time < 20:
+                cylinder_mass = .15
+            elif self.plant.data.time < 25:
+                cylinder_mass = .25
+            elif self.plant.data.time < 30:
+                cylinder_mass = .1
+            elif self.plant.data.time < 35:
+                cylinder_mass = .25
+            elif self.plant.data.time < 40:
+                cylinder_mass = .05
+            elif self.plant.data.time < 45:
+                cylinder_mass = .25
+            elif self.plant.data.time < 50:
+                cylinder_mass = 0
+            else:
+                cylinder_mass = 3
+
+            # Update the mass of the cylinder
+            self.plant.model.body(self.plant.weight_id).mass[0] = cylinder_mass
+
+            # Keep cylinder height constant 
+            cylinder_height = .2
+            self.plant.model.geom(self.plant.weight_id).size[1] = cylinder_height/2    # This actually codes 'half length along cylinder's local z axis'. So length = twice this.
+
+            # Set density
+            cylinder_density = 500
+
+            # Make cylinder height reflect mass
+            cylinder_radius = np.sqrt(cylinder_mass/(cylinder_density*cylinder_height*np.pi))
+            self.plant.model.geom(self.plant.weight_id).size[0] = cylinder_radius
+
+            if log:
+                self.log(
+                    time=self.plant.data.time,
+                    sensors=feedback,
+                    target_position=target_position,
+                    hand_position=hand_position,
+                    manhattan_distance=manhattan_distance,
+                    euclidean_distance=euclidean_distance,
+                    energy=energy,
+                    entropy=entropy,
+                    reward=reward,
+                    fitness=total_reward / trial_duration,
+                )
+
+            if self.plant.data.time > target_offset_times[target_idx]:
+                target_idx += 1
+                if target_idx < self.num_targets:
+                    self.plant.update_target(target_positions[target_idx])
+
+        self.plant.close()
+
+        return total_reward / trial_duration
 
     """
     .########..##........#######..########
