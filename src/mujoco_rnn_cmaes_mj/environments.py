@@ -140,7 +140,7 @@ class SequentialReachingEnv:
             obs = np.concatenate([context, feedback])
             action = rnn.step(obs)
             self.plant.step(action)
-            
+
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)
@@ -210,7 +210,7 @@ class SequentialReachingEnv:
         grid_positions = np.array(self.plant.grid_positions.copy())
         grid_pos_idx = 0
         self.plant.update_nail(grid_positions[grid_pos_idx])
-        
+
         # Update the target position
         target_position = self.plant.sample_targets(1)
         self.plant.update_target(target_position)
@@ -255,9 +255,9 @@ class SequentialReachingEnv:
     .##.......##.......##.......##.....##.##.....##.##.....##.##...###
     .##.......########.########.########..##.....##.##.....##.##....##
     """
-    
-    def feldman(self, rnn, seed=0, render=False, log=False):
-        """Evaluate fitness of a given RNN policy"""
+
+    def feldman(self, rnn, seed=0, weight_mod=1, render=False, log=False):
+        """Based on Asatryan and Feldman, 1965"""
         np.random.seed(seed)
 
         rnn.init_state()
@@ -274,6 +274,7 @@ class SequentialReachingEnv:
         trial_duration = target_durations.sum()
         total_reward = 0
 
+        target_onset_times = np.cumsum(target_durations) - target_durations[0]
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
@@ -285,7 +286,7 @@ class SequentialReachingEnv:
             obs = np.concatenate([context, feedback])
             action = rnn.step(obs)
             self.plant.step(action)
-            
+
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)
@@ -302,42 +303,54 @@ class SequentialReachingEnv:
             )
             total_reward += reward
 
+            max_pulley_weight = 0.25
+            min_pulley_weight = 0
+            num_pulley_weights = 5
+            pulley_weights = np.linspace(
+                min_pulley_weight, max_pulley_weight, num_pulley_weights
+            )
+            weight_durations = target_durations[0] / num_pulley_weights
+
             # Set mass of pulley weight
-            if self.plant.data.time < 5:
-                cylinder_mass = .25
-            elif self.plant.data.time < 10:
-                cylinder_mass = .2
-            elif self.plant.data.time < 15:
-                cylinder_mass = .25
-            elif self.plant.data.time < 20:
-                cylinder_mass = .15
-            elif self.plant.data.time < 25:
-                cylinder_mass = .25
-            elif self.plant.data.time < 30:
-                cylinder_mass = .1
-            elif self.plant.data.time < 35:
-                cylinder_mass = .25
-            elif self.plant.data.time < 40:
-                cylinder_mass = .05
-            elif self.plant.data.time < 45:
-                cylinder_mass = .25
-            elif self.plant.data.time < 50:
-                cylinder_mass = 0
+            if self.plant.data.time - target_onset_times[target_idx] < 5:
+                cylinder_mass = 0.25 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 10:
+                cylinder_mass = 0.2 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 15:
+                cylinder_mass = 0.25 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 20:
+                cylinder_mass = 0.15 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 25:
+                cylinder_mass = 0.25 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 30:
+                cylinder_mass = 0.1 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 35:
+                cylinder_mass = 0.25 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 40:
+                cylinder_mass = 0.05 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 45:
+                cylinder_mass = 0.25 * weight_mod
+            elif self.plant.data.time - target_onset_times[target_idx] < 50:
+                cylinder_mass = 0 * weight_mod
             else:
-                cylinder_mass = 3
+                cylinder_mass = 3 * weight_mod
 
             # Update the mass of the cylinder
             self.plant.model.body(self.plant.weight_id).mass[0] = cylinder_mass
 
-            # Keep cylinder height constant 
-            cylinder_height = .2
-            self.plant.model.geom(self.plant.weight_id).size[1] = cylinder_height/2    # This actually codes 'half length along cylinder's local z axis'. So length = twice this.
+            # Keep cylinder height constant
+            cylinder_height = 0.2
+            self.plant.model.geom(self.plant.weight_id).size[1] = (
+                cylinder_height / 2
+            )  # This actually codes 'half length along cylinder's local z axis'. So length = twice this.
 
             # Set density
             cylinder_density = 500
 
             # Make cylinder height reflect mass
-            cylinder_radius = np.sqrt(cylinder_mass/(cylinder_density*cylinder_height*np.pi))
+            cylinder_radius = np.sqrt(
+                cylinder_mass / (cylinder_density * cylinder_height * np.pi)
+            )
             self.plant.model.geom(self.plant.weight_id).size[0] = cylinder_radius
 
             if log:
