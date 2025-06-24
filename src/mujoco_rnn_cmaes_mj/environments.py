@@ -257,7 +257,7 @@ class SequentialReachingEnv:
     """
     
     def feldman(self, rnn, seed=0, render=False, log=False):
-        """Evaluate fitness of a given RNN policy"""
+        """Based on Asatryan and Feldman, 1965"""
         np.random.seed(seed)
 
         rnn.init_state()
@@ -301,6 +301,14 @@ class SequentialReachingEnv:
                 + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
             )
             total_reward += reward
+
+            max_pulley_weight = .25
+            min_pulley_weight = 0
+            num_pulley_weights = 5
+            pulley_weights = np.linspace(min_pulley_weight, max_pulley_weight, num_pulley_weights)
+            weight_durations = target_durations[0]/num_pulley_weights
+
+            
 
             # Set mass of pulley weight
             if self.plant.data.time < 5:

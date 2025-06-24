@@ -1,0 +1,29 @@
+<mujoco model="tendon_fixed_example">
+  <compiler angle="degree"/>
+  <option gravity="0 -9.81 0"/>
+
+  <worldbody>
+    <!-- Wrap cylinder -->
+    <body name="wrap" pos="0 0.2 0">
+      <geom name="wrap_geom" type="cylinder" size="0.05 0.1" euler="0 90 0" rgba="0 0 1 0.5"/>
+    </body>
+
+    <!-- Sliding weight -->
+    <body name="weight" pos="0 0 0">
+      <joint name="slidey" type="slide" axis="0 1 0" range="-1 1" damping="1"/>
+      <geom type="sphere" size="0.05" density="10" rgba="1 1 0 1"/>
+    </body>
+  </worldbody>
+
+  <tendon>
+    <fixed name="pull_tendon">
+      <geom geom="wrap_geom" coef="0.2"/> <!-- wraps around -->
+      <joint joint="slidey" coef="1"/>    <!-- tendon pulls the joint -->
+    </fixed>
+  </tendon>
+
+  <actuator>
+    <general name="spring" tendon="pull_tendon" gear="1" biasprm="100 0 0"/>
+  </actuator>
+</mujoco>
+
