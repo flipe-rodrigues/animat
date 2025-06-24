@@ -79,7 +79,7 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.title("Input Weights")
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
-env.feldman(best_rnn, seed=0, render=True, log=True)
+env.feldman(best_rnn, weight_mod=3, seed=0, render=True, log=True)
 env.plot()
 
 
