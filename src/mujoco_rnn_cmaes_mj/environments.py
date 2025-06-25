@@ -132,8 +132,6 @@ class SequentialReachingEnv:
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
-     
-
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
@@ -158,11 +156,6 @@ class SequentialReachingEnv:
                 + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
             )
             total_reward += reward
-
-            elbow_id = self.plant.model.joint_name2id("elbow")
-            elbow_dof = self.plant.model.jnt_dofadr[elbow_id]
-            elbow_torque = self.plant.data.qfrc_actuator[elbow_dof]
-            elbow_torque_log.append(elbow_torque)
 
             if log:
                 self.log(
@@ -263,7 +256,9 @@ class SequentialReachingEnv:
     .##.......########.########.########..##.....##.##.....##.##....##
     """
 
-    def feldman(self, rnn, seed=0, weight_mod=1, render=False, log=False):
+    def feldman(
+        self, rnn, seed=0, weight_mod=1, weight_density=100, render=False, log=False
+    ):
         """Based on Asatryan and Feldman, 1965"""
         np.random.seed(seed)
 
@@ -278,10 +273,10 @@ class SequentialReachingEnv:
             size=self.num_targets,
         )
         target_offset_times = target_durations.cumsum()
+        target_onset_times = target_offset_times - target_durations[0]
         trial_duration = target_durations.sum()
         total_reward = 0
 
-        target_onset_times = np.cumsum(target_durations) - target_durations[0]
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
@@ -313,40 +308,28 @@ class SequentialReachingEnv:
             )
             total_reward += reward
 
-            max_pulley_weight = 0.25
-            min_pulley_weight = 0
-            num_pulley_weights = 5
+            max_pulley_weight = 0.5
+            min_pulley_weight = 1e-3
+            num_unique_weights = 5
             pulley_weights = np.linspace(
-                min_pulley_weight, max_pulley_weight, num_pulley_weights
+                min_pulley_weight, max_pulley_weight, num_unique_weights
             )
-            weight_durations = target_durations[0] / num_pulley_weights
+            alternating_weights = []
+            for i in range(num_unique_weights):
+                alternating_weights.append(max_pulley_weight)
+                alternating_weights.append(pulley_weights[i])
+            num_pulley_weights = len(alternating_weights)
 
-            # Set mass of pulley weight
-            if self.plant.data.time - target_onset_times[target_idx] < 5:
-                cylinder_mass = 0.25 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 10:
-                cylinder_mass = 0.2 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 15:
-                cylinder_mass = 0.25 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 20:
-                cylinder_mass = 0.15 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 25:
-                cylinder_mass = 0.25 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 30:
-                cylinder_mass = 0.1 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 35:
-                cylinder_mass = 0.25 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 40:
-                cylinder_mass = 0.05 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 45:
-                cylinder_mass = 0.25 * weight_mod
-            elif self.plant.data.time - target_onset_times[target_idx] < 50:
-                cylinder_mass = 0 * weight_mod
-            else:
-                cylinder_mass = 3 * weight_mod
+            weight_update_period = target_durations[0] / num_pulley_weights
+            target_aligned_time = self.plant.data.time - target_onset_times[target_idx]
+            weight_idx = int(np.floor(target_aligned_time / num_pulley_weights))
+
+            # Run the weight update protocol
+            if target_aligned_time > weight_update_period * weight_idx:
+                weight_mass = alternating_weights[weight_idx]
 
             # Update the mass of the cylinder
-            self.plant.model.body(self.plant.weight_id).mass[0] = cylinder_mass
+            self.plant.model.body(self.plant.weight_id).mass[0] = weight_mass
 
             # Keep cylinder height constant
             cylinder_height = 0.2
@@ -354,14 +337,17 @@ class SequentialReachingEnv:
                 cylinder_height / 2
             )  # This actually codes 'half length along cylinder's local z axis'. So length = twice this.
 
-            # Set density
-            cylinder_density = 500
-
             # Make cylinder height reflect mass
             cylinder_radius = np.sqrt(
-                cylinder_mass / (cylinder_density * cylinder_height * np.pi)
+                weight_mass / (weight_density * cylinder_height * np.pi)
             )
             self.plant.model.geom(self.plant.weight_id).size[0] = cylinder_radius
+
+            # Log the elbow torque
+            # elbow_id = self.model.joint("elbow").id # self.plant.model.joint_name2id("elbow")
+            # elbow_dof = self.plant.model.jnt_dofadr[elbow_id]
+            # elbow_torque = self.plant.data.qfrc_actuator[elbow_dof]
+            # elbow_torque_log.append(elbow_torque)
 
             if log:
                 self.log(
@@ -386,7 +372,6 @@ class SequentialReachingEnv:
 
         self.elbow_torque_log = elbow_torque_log
 
-
         return total_reward / trial_duration
 
     """
@@ -400,7 +385,7 @@ class SequentialReachingEnv:
     """
 
     def plot(self):
-        # 
+        #
         if hasattr(self, "elbow_torque_log"):
             plt.figure(figsize=(10, 4))
             plt.plot(self.elbow_torque_log)
@@ -410,9 +395,7 @@ class SequentialReachingEnv:
             plt.grid(True)
             plt.tight_layout()
             plt.show()
-        
-        
-        
+
         # log = self.logger
 
         # _, axes = plt.subplots(3, 2, figsize=(10, 10))

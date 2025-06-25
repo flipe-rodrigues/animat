@@ -8,7 +8,6 @@
 ..##..##.....##.##........##.....##.##....##.....##....##....##
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
-
 import pickle
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -38,11 +37,15 @@ rnn = RNN(
     activation=tanh,
     alpha=1,  # reacher.model.opt.timestep / 10e-3,
 )
-target_duration = 55
+target_duration = 10
 env = SequentialReachingEnv(
     plant=reacher,
-    target_duration={"mean": target_duration, "min": target_duration, "max": target_duration},
-    num_targets=2,
+    target_duration={
+        "mean": target_duration,
+        "min": target_duration,
+        "max": target_duration,
+    },
+    num_targets=20,
     loss_weights={
         "euclidean": 1,
         "manhattan": 0,
@@ -52,7 +55,7 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "../../models"
-models_dir = "/Users/joseph/Documents/GitHub/animat/models"
+# models_dir = "/Users/joseph/Documents/GitHub/animat/models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
@@ -81,10 +84,12 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.title("Input Weights")
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
-env.feldman(best_rnn, weight_mod=3, seed=0, render=True, log=True)
+env.feldman(
+    best_rnn,
+    weight_mod=2,
+    weight_density=100,
+    seed=0,
+    render=True,
+    log=True,
+)
 env.plot()
-
-
-
-
-# %%
