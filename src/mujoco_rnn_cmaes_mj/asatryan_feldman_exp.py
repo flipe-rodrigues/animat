@@ -8,6 +8,7 @@
 ..##..##.....##.##........##.....##.##....##.....##....##....##
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
+
 import pickle
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -37,9 +38,10 @@ rnn = RNN(
     activation=tanh,
     alpha=1,  # reacher.model.opt.timestep / 10e-3,
 )
+target_duration = 55
 env = SequentialReachingEnv(
     plant=reacher,
-    target_duration={"mean": 5, "min": 5, "max": 5},
+    target_duration={"mean": target_duration, "min": target_duration, "max": target_duration},
     num_targets=2,
     loss_weights={
         "euclidean": 1,
@@ -81,6 +83,8 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.ylabel("Hidden Units")
 env.feldman(best_rnn, weight_mod=3, seed=0, render=True, log=True)
 env.plot()
+
+
 
 
 # %%

@@ -132,6 +132,8 @@ class SequentialReachingEnv:
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
+     
+
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
@@ -156,6 +158,11 @@ class SequentialReachingEnv:
                 + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
             )
             total_reward += reward
+
+            elbow_id = self.plant.model.joint_name2id("elbow")
+            elbow_dof = self.plant.model.jnt_dofadr[elbow_id]
+            elbow_torque = self.plant.data.qfrc_actuator[elbow_dof]
+            elbow_torque_log.append(elbow_torque)
 
             if log:
                 self.log(
@@ -278,6 +285,9 @@ class SequentialReachingEnv:
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
+        # Keep track of elbow torque
+        elbow_torque_log = []
+
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
@@ -374,6 +384,9 @@ class SequentialReachingEnv:
 
         self.plant.close()
 
+        self.elbow_torque_log = elbow_torque_log
+
+
         return total_reward / trial_duration
 
     """
@@ -387,184 +400,197 @@ class SequentialReachingEnv:
     """
 
     def plot(self):
-        log = self.logger
+        # 
+        if hasattr(self, "elbow_torque_log"):
+            plt.figure(figsize=(10, 4))
+            plt.plot(self.elbow_torque_log)
+            plt.title("Elbow Torque Over Time")
+            plt.xlabel("Timestep")
+            plt.ylabel("Torque (Nm)")
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
+        
+        
+        
+        # log = self.logger
 
-        _, axes = plt.subplots(3, 2, figsize=(10, 10))
+        # _, axes = plt.subplots(3, 2, figsize=(10, 10))
 
-        # Targets
-        target_onset_idcs = np.where(
-            np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
-        )[0]
-        target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
-        target_onset_times = np.array(
-            [log["time"][target_onset_idx] for target_onset_idx in target_onset_idcs]
-        )
-        for t in target_onset_times:
-            axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        # # Targets
+        # target_onset_idcs = np.where(
+        #     np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
+        # )[0]
+        # target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
+        # target_onset_times = np.array(
+        #     [log["time"][target_onset_idx] for target_onset_idx in target_onset_idcs]
+        # )
+        # for t in target_onset_times:
+        #     axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        #     axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
 
-        linewidth = 1
+        # linewidth = 1
 
-        # Length
-        axes[0, 0].plot(log["time"], log["sensors"]["deltoid_len"], label="Deltoid")
-        axes[0, 0].plot(
-            log["time"],
-            log["sensors"]["latissimus_len"],
-            linewidth=linewidth,
-            label="Latissimus",
-        )
-        axes[0, 0].plot(
-            log["time"],
-            log["sensors"]["biceps_len"],
-            linewidth=linewidth,
-            label="Biceps",
-        )
-        axes[0, 0].plot(
-            log["time"],
-            log["sensors"]["triceps_len"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[0, 0].set_title("Length")
+        # # Length
+        # axes[0, 0].plot(log["time"], log["sensors"]["deltoid_len"], label="Deltoid")
+        # axes[0, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["latissimus_len"],
+        #     linewidth=linewidth,
+        #     label="Latissimus",
+        # )
+        # axes[0, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["biceps_len"],
+        #     linewidth=linewidth,
+        #     label="Biceps",
+        # )
+        # axes[0, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["triceps_len"],
+        #     linewidth=linewidth,
+        #     label="Triceps",
+        # )
+        # axes[0, 0].set_title("Length")
 
-        # Velocity
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["deltoid_vel"],
-            linewidth=linewidth,
-            label="Deltoid",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["latissimus_vel"],
-            linewidth=linewidth,
-            label="Latissimus",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["biceps_vel"],
-            linewidth=linewidth,
-            label="Biceps",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["triceps_vel"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[0, 1].set_title("Velocity")
-        axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
+        # # Velocity
+        # axes[0, 1].plot(
+        #     log["time"],
+        #     log["sensors"]["deltoid_vel"],
+        #     linewidth=linewidth,
+        #     label="Deltoid",
+        # )
+        # axes[0, 1].plot(
+        #     log["time"],
+        #     log["sensors"]["latissimus_vel"],
+        #     linewidth=linewidth,
+        #     label="Latissimus",
+        # )
+        # axes[0, 1].plot(
+        #     log["time"],
+        #     log["sensors"]["biceps_vel"],
+        #     linewidth=linewidth,
+        #     label="Biceps",
+        # )
+        # axes[0, 1].plot(
+        #     log["time"],
+        #     log["sensors"]["triceps_vel"],
+        #     linewidth=linewidth,
+        #     label="Triceps",
+        # )
+        # axes[0, 1].set_title("Velocity")
+        # axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
-        # Force
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["deltoid_frc"],
-            linewidth=linewidth,
-            label="Deltoid",
-        )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["latissimus_frc"],
-            linewidth=linewidth,
-            label="Latissimus",
-        )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["biceps_frc"],
-            linewidth=linewidth,
-            label="Biceps",
-        )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["triceps_frc"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[1, 0].set_title("Force")
+        # # Force
+        # axes[1, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["deltoid_frc"],
+        #     linewidth=linewidth,
+        #     label="Deltoid",
+        # )
+        # axes[1, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["latissimus_frc"],
+        #     linewidth=linewidth,
+        #     label="Latissimus",
+        # )
+        # axes[1, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["biceps_frc"],
+        #     linewidth=linewidth,
+        #     label="Biceps",
+        # )
+        # axes[1, 0].plot(
+        #     log["time"],
+        #     log["sensors"]["triceps_frc"],
+        #     linewidth=linewidth,
+        #     label="Triceps",
+        # )
+        # axes[1, 0].set_title("Force")
 
-        # Distance
-        axes[1, 1].plot(
-            log["time"],
-            log["manhattan_distance"],
-            linewidth=linewidth,
-            label="Manhattan",
-        )
-        axes[1, 1].plot(
-            log["time"],
-            log["euclidean_distance"],
-            linewidth=linewidth,
-            label="Euclidean",
-        )
-        axes[1, 1].set_title("Distance")
-        axes[1, 1].set_ylim([-0.05, 2.05])
-        axes[1, 1].legend()
+        # # Distance
+        # axes[1, 1].plot(
+        #     log["time"],
+        #     log["manhattan_distance"],
+        #     linewidth=linewidth,
+        #     label="Manhattan",
+        # )
+        # axes[1, 1].plot(
+        #     log["time"],
+        #     log["euclidean_distance"],
+        #     linewidth=linewidth,
+        #     label="Euclidean",
+        # )
+        # axes[1, 1].set_title("Distance")
+        # axes[1, 1].set_ylim([-0.05, 2.05])
+        # axes[1, 1].legend()
 
-        # Energy
-        axes[2, 0].plot(log["time"], log["entropy"], linewidth=0.1, label="Entropy")
-        axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
-        axes[2, 0].set_title("Energy")
-        axes[2, 0].set_ylim([-0.05, 2.05])
-        axes[2, 0].legend()
+        # # Energy
+        # axes[2, 0].plot(log["time"], log["entropy"], linewidth=0.1, label="Entropy")
+        # axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
+        # axes[2, 0].set_title("Energy")
+        # axes[2, 0].set_ylim([-0.05, 2.05])
+        # axes[2, 0].legend()
 
-        # Fitness
-        axes[2, 1].plot(log["time"], log["reward"], linewidth=linewidth, label="Reward")
-        axes[2, 1].set_title("Loss")
-        axes[2, 1].set_ylim([-2.05, 0.05])
+        # # Fitness
+        # axes[2, 1].plot(log["time"], log["reward"], linewidth=linewidth, label="Reward")
+        # axes[2, 1].set_title("Loss")
+        # axes[2, 1].set_ylim([-2.05, 0.05])
 
-        # Create a twin axis (right y-axis)
-        r, g, b = np.array([1, 1, 1]) * 0.25
-        fitness_clr = (r, g, b)
-        ax_right = axes[2, 1].twinx()
-        ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
-        ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
-        ax_right.tick_params(axis="y", labelcolor=fitness_clr)
+        # # Create a twin axis (right y-axis)
+        # r, g, b = np.array([1, 1, 1]) * 0.25
+        # fitness_clr = (r, g, b)
+        # ax_right = axes[2, 1].twinx()
+        # ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
+        # ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
+        # ax_right.tick_params(axis="y", labelcolor=fitness_clr)
 
-        # Set axis labels
-        for ax in axes.flat:
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Arb.")
+        # # Set axis labels
+        # for ax in axes.flat:
+        #     ax.set_xlabel("Time (s)")
+        #     ax.set_ylabel("Arb.")
 
-        plt.tight_layout()
-        plt.show()
+        # plt.tight_layout()
+        # plt.show()
 
-        # Hand Velocity
-        plt.figure(figsize=(10, 1))
-        # Annotate target change times with vertical lines
-        for idx in target_onset_idcs:
-            plt.axvline(
-                x=log["time"][idx],
-                color="blue",
-                linestyle="--",
-                linewidth=0.5,
-                label="Target Change" if idx == target_onset_idcs[0] else None,
-            )
-        hand_positions = np.array(log["hand_position"])
-        hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
-        time = np.array(
-            log["time"][:-1]
-        )  # Exclude the last time step to match velocity array length
-        plt.plot(
-            time,
-            hand_velocities,
-            linewidth=linewidth,
-            label="Hand Velocity",
-            color="black",
-        )
-        plt.xlabel("Time (s)")
-        plt.ylabel("Hand velocity (a.u.)")
-        ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
-        ax_right.plot(
-            log["time"][:-1],
-            log["euclidean_distance"][:-1],
-            linewidth=linewidth,
-            label="Euclidean Distance",
-            color="red",
-        )
-        ax_right.set_ylabel("Euclidean Distance", color="red")
-        ax_right.tick_params(axis="y", labelcolor="red")
+        # # Hand Velocity
+        # plt.figure(figsize=(10, 1))
+        # # Annotate target change times with vertical lines
+        # for idx in target_onset_idcs:
+        #     plt.axvline(
+        #         x=log["time"][idx],
+        #         color="blue",
+        #         linestyle="--",
+        #         linewidth=0.5,
+        #         label="Target Change" if idx == target_onset_idcs[0] else None,
+        #     )
+        # hand_positions = np.array(log["hand_position"])
+        # hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
+        # time = np.array(
+        #     log["time"][:-1]
+        # )  # Exclude the last time step to match velocity array length
+        # plt.plot(
+        #     time,
+        #     hand_velocities,
+        #     linewidth=linewidth,
+        #     label="Hand Velocity",
+        #     color="black",
+        # )
+        # plt.xlabel("Time (s)")
+        # plt.ylabel("Hand velocity (a.u.)")
+        # ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
+        # ax_right.plot(
+        #     log["time"][:-1],
+        #     log["euclidean_distance"][:-1],
+        #     linewidth=linewidth,
+        #     label="Euclidean Distance",
+        #     color="red",
+        # )
+        # ax_right.set_ylabel("Euclidean Distance", color="red")
+        # ax_right.tick_params(axis="y", labelcolor="red")
 
-        self.logger = None
+        # self.logger = None
