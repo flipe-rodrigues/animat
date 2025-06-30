@@ -50,17 +50,7 @@
       <body name="upper_arm" pos="0 0 0">
 
         <!-- shoulder -->
-        <joint name="shoulder" type="hinge" axis="0 0 1" range="-60 60" />
-
-        <!-- weight -->
-        <!-- <body name="weight" pos="0 -1.5 -1">
-          <joint axis="0 0 1" pos="0 0 .025" type="slide" />
-          <geom name="weight" type="cylinder" size=".03 .025" mass="1" rgba=".2 .2 .5 1" />
-          <site name="s1" pos="0 0 .025" />
-        </body> -->
-
-        <!-- pulley site -->
-        <!-- <site name="pulley" pos="0 -1.5 0" /> -->
+        <joint name="shoulder" type="hinge" axis="0 0 1" range="-1e-3 1e-3" />
 
         <!-- tendon attachment sites -->
         <site name="deltoid2" pos="0.025 -.1 0" size="0.01" />

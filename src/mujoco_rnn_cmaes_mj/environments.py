@@ -288,12 +288,10 @@ class SequentialReachingEnv:
 
         # Keep track of elbow torque
         elbow_joint_id = self.plant.model.joint("elbow").id
-        # elbow_torque_id = self.plant.model.sensor_name2id("elbow_torque")
-        
+    
         elbow_angle_log = []
         elbow_torque_log = []
         elbow_torque_sensor_log = []
-        
 
         while target_idx < self.num_targets:
             if render:
@@ -331,7 +329,6 @@ class SequentialReachingEnv:
                 alternating_weights.append(max_pulley_weight)
                 alternating_weights.append(pulley_weights[i])
             num_pulley_weights = len(alternating_weights)
-
             weight_update_period = target_durations[0] / num_pulley_weights
             target_aligned_time = self.plant.data.time - target_onset_times[target_idx]
             weight_idx = int(np.floor(target_aligned_time / num_pulley_weights))
