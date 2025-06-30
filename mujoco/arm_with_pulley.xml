@@ -142,8 +142,6 @@
       <site site="pulley" />
       <geom geom="hand" />
       <site site="s3" />
-
-
     </spatial>
 
   </tendon>

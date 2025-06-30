@@ -288,7 +288,7 @@ class SequentialReachingEnv:
 
         # Keep track of elbow torque
         elbow_joint_id = self.plant.model.joint("elbow").id
-        elbow_torque_id = self.plant.model.sensor_name2id("elbow_torque")
+        # elbow_torque_id = self.plant.model.sensor_name2id("elbow_torque")
         
         elbow_angle_log = []
         elbow_torque_log = []
@@ -364,7 +364,7 @@ class SequentialReachingEnv:
             # Store elbow data
             elbow_torque_log.append(self.plant.data.qfrc_actuator[elbow_joint_id])  # Elbow torque as read out like this.
             elbow_angle_log.append(self.plant.data.qpos[elbow_joint_id])
-            elbow_torque_sensor_log.append(self.plant.data.sensordata[elbow_torque_id]) # Elbow torque as read out from a sensor.
+            elbow_torque_sensor_log.append(self.plant.data.sensordata[-1]) # Elbow torque as read out from a sensor.
 
             if log:
                 self.log(

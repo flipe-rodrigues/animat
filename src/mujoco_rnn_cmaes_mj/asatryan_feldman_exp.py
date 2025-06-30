@@ -58,6 +58,7 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
+models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 

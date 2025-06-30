@@ -13,7 +13,7 @@ class SequentialReacher:
         xml_path = os.path.join(mj_dir, plant_xml_file)
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
-        self.num_sensors = self.model.nsensor
+        self.num_sensors = self.model.nu * 3  # Assuming 3 sensors per actuator
         self.num_actuators = self.model.nu
         self.viewer = None
 
@@ -79,7 +79,7 @@ class SequentialReacher:
 
     def get_obs(self):
         target_position = self.data.mocap_pos[0].copy()
-        sensor_data = self.data.sensordata.copy()
+        sensor_data = self.data.sensordata[0 : self.num_sensors].copy()
         norm_target_position = zscore(
             target_position,
             self.hand_position_stats["mean"].values,
