@@ -8,6 +8,8 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from plants import SequentialReacher
@@ -266,6 +268,10 @@ class SequentialReachingEnv:
         self.plant.reset()
 
         target_positions = self.plant.sample_targets(self.num_targets)
+        target_positions = [[-0.33, -0.7, 0.],
+                            [-0.15, -0.65, 0],
+                            [0, -0.6, 0]]
+        print(target_positions)
         target_durations = truncated_exponential(
             mu=self.target_duration["mean"],
             a=self.target_duration["min"],
@@ -281,7 +287,13 @@ class SequentialReachingEnv:
         self.plant.update_target(target_positions[target_idx])
 
         # Keep track of elbow torque
+        elbow_joint_id = self.plant.model.joint("elbow").id
+        elbow_torque_id = self.plant.model.sensor_name2id("elbow_torque")
+        
+        elbow_angle_log = []
         elbow_torque_log = []
+        elbow_torque_sensor_log = []
+        
 
         while target_idx < self.num_targets:
             if render:
@@ -308,8 +320,8 @@ class SequentialReachingEnv:
             )
             total_reward += reward
 
-            max_pulley_weight = 0.5
-            min_pulley_weight = 1e-3
+            max_pulley_weight = 0.5 * weight_mod
+            min_pulley_weight = 1e-3 * weight_mod
             num_unique_weights = 5
             pulley_weights = np.linspace(
                 min_pulley_weight, max_pulley_weight, num_unique_weights
@@ -349,6 +361,11 @@ class SequentialReachingEnv:
             # elbow_torque = self.plant.data.qfrc_actuator[elbow_dof]
             # elbow_torque_log.append(elbow_torque)
 
+            # Store elbow data
+            elbow_torque_log.append(self.plant.data.qfrc_actuator[elbow_joint_id])  # Elbow torque as read out like this.
+            elbow_angle_log.append(self.plant.data.qpos[elbow_joint_id])
+            elbow_torque_sensor_log.append(self.plant.data.sensordata[elbow_torque_id]) # Elbow torque as read out from a sensor.
+
             if log:
                 self.log(
                     time=self.plant.data.time,
@@ -371,6 +388,10 @@ class SequentialReachingEnv:
         self.plant.close()
 
         self.elbow_torque_log = elbow_torque_log
+        self.elbow_angle_log = elbow_angle_log
+        self.elbow_torque_sensor_log = elbow_torque_sensor_log
+        self.num_pulley_weights = num_pulley_weights
+        self.weight_update_period = weight_update_period
 
         return total_reward / trial_duration
 
@@ -386,15 +407,180 @@ class SequentialReachingEnv:
 
     def plot(self):
         #
+
+        timesteps = np.arange(len(self.elbow_torque_log))
+        time_sec = timesteps * self.plant.model.opt.timestep
+
         if hasattr(self, "elbow_torque_log"):
-            plt.figure(figsize=(10, 4))
-            plt.plot(self.elbow_torque_log)
-            plt.title("Elbow Torque Over Time")
-            plt.xlabel("Timestep")
-            plt.ylabel("Torque (Nm)")
-            plt.grid(True)
-            plt.tight_layout()
+            fig, ax1 = plt.subplots(figsize=(10, 4))
+
+            # Plot torque on the primary y-axis
+            ax1.plot(time_sec,self.elbow_torque_log, color='blue', label='Torque')
+            ax1.set_xlabel("Timestep")
+            ax1.set_ylabel("Torque (Nm)", color='blue')
+            ax1.tick_params(axis='y', labelcolor='blue')
+            ax1.grid(True)
+
+            # Create secondary y-axis for angle
+            ax2 = ax1.twinx()
+            ax2.plot(time_sec,self.elbow_angle_log, color='black', label='Angle')
+            ax2.set_ylabel("Angle (rad)", color='black')
+            ax2.tick_params(axis='y', labelcolor='black')
+
+            plt.title("Elbow")
+            fig.tight_layout()
+            plt.savefig('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/elbow_torque.png', dpi=900)
             plt.show()
+
+            # Split logs based on weight_update_period
+            torque_segments = []
+            angle_segments = []
+            for target_idx in range(self.num_targets):
+                for i in range(self.num_pulley_weights):
+                    start_time = target_idx * self.num_pulley_weights * self.weight_update_period + i * self.weight_update_period
+                    end_time = start_time + self.weight_update_period
+                    segment_indices = (time_sec >= start_time) & (time_sec < end_time)
+                    torque_segments.append(np.array(self.elbow_torque_log)[segment_indices])
+                    angle_segments.append(np.array(self.elbow_angle_log)[segment_indices])
+
+            # Example: Print the number of segments
+            print(f"Number of torque segments: {len(torque_segments)}")
+            print(f"Number of angle segments: {len(angle_segments)}")
+            print(torque_segments)
+            
+            # Find the average torque and angle for the second half of each segment
+            avg_torque = [np.mean(segment[len(segment)//2:]) for segment in torque_segments]
+            avg_angle = [np.mean(segment[len(segment)//2:]) for segment in angle_segments]
+            avg_angle_degrees = [np.degrees(angle) for angle in avg_angle]
+            
+            print("Average Torque per Segment:", avg_torque)
+            print("Average Angle per Segment:", avg_angle)
+
+            # Scatter plot of avg_torque vs avg_angle
+            plt.figure(figsize=(6, 4))
+            num_segments_to_plot = len(torque_segments)/self.num_targets
+            # plt.scatter(avg_angle_degrees[:int(num_segments_to_plot)], avg_torque[:int(num_segments_to_plot)], color='purple', label='First target')
+            # plt.scatter(avg_angle_degrees[int(num_segments_to_plot):], avg_torque[int(num_segments_to_plot):], color='green', label='Second target')
+            # plt.scatter(avg_angle_degrees[int(num_segments_to_plot):], avg_torque[int(num_segments_to_plot):], color='red', label='Third target')
+            plt.xlabel("Average Angle (degrees)")
+            colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
+            for target_idx in range(self.num_targets):
+                start_idx = target_idx * int(num_segments_to_plot)
+                end_idx = (target_idx + 1) * int(num_segments_to_plot)
+                odd_indices = list(range(start_idx + 1, end_idx, 2))
+                indices_to_plot = [start_idx] + odd_indices
+                plt.scatter([avg_angle_degrees[i] for i in indices_to_plot], 
+                            [avg_torque[i] for i in indices_to_plot], 
+                            color=colors[target_idx % len(colors)], 
+                            label=f'Target {target_idx + 1}',alpha=0.7)
+            plt.ylabel("Average Torque (Nm)")
+            plt.title("Average Torque vs Average Angle")
+            plt.grid(False)
+            plt.legend()
+
+            print('angles')
+            print(avg_angle_degrees[:int(num_segments_to_plot)])
+            print(avg_angle_degrees[int(num_segments_to_plot):])
+
+            # Option to save the figure
+            save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_2.png'
+            plt.savefig(save_path, dpi=900)
+            print(f"Scatter plot saved to {save_path}")
+
+            plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if hasattr(self, "elbow_torque_sensor_log"):
+            fig, ax1 = plt.subplots(figsize=(10, 4))
+
+            # Plot torque on the primary y-axis
+            ax1.plot(time_sec, self.elbow_torque_sensor_log, color='blue', label='Torque')
+            ax1.set_xlabel("Timestep")
+            ax1.set_ylabel("Torque (Nm)", color='blue')
+            ax1.tick_params(axis='y', labelcolor='blue')
+            ax1.grid(True)
+
+            # Create secondary y-axis for angle
+            ax2 = ax1.twinx()
+            ax2.plot(time_sec, self.elbow_angle_log, color='black', label='Angle')
+            ax2.set_ylabel("Angle (rad)", color='black')
+            ax2.tick_params(axis='y', labelcolor='black')
+
+            plt.title("Elbow")
+            fig.tight_layout()
+            plt.savefig('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/elbow_torque.png', dpi=900)
+            plt.show()
+
+            # Split logs based on weight_update_period
+            torque_segments = []
+            angle_segments = []
+            for target_idx in range(self.num_targets):
+                for i in range(self.num_pulley_weights):
+                    start_time = target_idx * self.num_pulley_weights * self.weight_update_period + i * self.weight_update_period
+                    end_time = start_time + self.weight_update_period
+                    segment_indices = (time_sec >= start_time) & (time_sec < end_time)
+                    torque_segments.append(np.array(self.elbow_torque_sensor_log)[segment_indices])
+                    angle_segments.append(np.array(self.elbow_angle_log)[segment_indices])
+
+            # Example: Print the number of segments
+            print(f"Number of torque segments: {len(torque_segments)}")
+            print(f"Number of angle segments: {len(angle_segments)}")
+            print(torque_segments)
+
+            # Find the average torque and angle for the second half of each segment
+            avg_torque = [np.mean(segment[len(segment)//2:]) for segment in torque_segments]
+            avg_angle = [np.mean(segment[len(segment)//2:]) for segment in angle_segments]
+            avg_angle_degrees = [np.degrees(angle) for angle in avg_angle]
+
+            print("Average Torque per Segment:", avg_torque)
+            print("Average Angle per Segment:", avg_angle)
+
+            # Scatter plot of avg_torque vs avg_angle
+            plt.figure(figsize=(6, 4))
+            num_segments_to_plot = len(torque_segments) / self.num_targets
+            plt.xlabel("Average Angle (degrees)")
+            colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
+            for target_idx in range(self.num_targets):
+                start_idx = target_idx * int(num_segments_to_plot)
+                end_idx = (target_idx + 1) * int(num_segments_to_plot)
+                odd_indices = list(range(start_idx + 1, end_idx, 2))
+                indices_to_plot = [start_idx] + odd_indices
+                plt.scatter([avg_angle_degrees[i] for i in indices_to_plot],
+                            [avg_torque[i] for i in indices_to_plot],
+                            color=colors[target_idx % len(colors)],
+                            label=f'Target {target_idx + 1}', alpha=0.7)
+            plt.ylabel("Average Torque (Nm)")
+            plt.title("Average Torque vs Average Angle")
+            plt.grid(False)
+            plt.legend()
+
+            print('angles')
+            print(avg_angle_degrees[:int(num_segments_to_plot)])
+            print(avg_angle_degrees[int(num_segments_to_plot):])
+
+            # Option to save the figure
+            save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_3.png'
+            plt.savefig(save_path, dpi=900)
+            print(f"Scatter plot saved to {save_path}")
+
+            plt.show()
+
+
 
         # log = self.logger
 

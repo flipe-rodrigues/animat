@@ -76,6 +76,7 @@
 
           <!-- elbow -->
           <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" />
+          <site name="elbow_site" pos="0 0 0" size="0.01" />
 
           <!-- tendon attachment sites -->
           <site name="biceps2" pos=".1 .03 0" size="0.01" />
@@ -168,6 +169,8 @@
     <actuatorfrc name="latissimus_force" actuator="latissimus" />
     <actuatorfrc name="biceps_force" actuator="biceps" />
     <actuatorfrc name="triceps_force" actuator="triceps" />
+
+    <torque name="elbow_torque" site="elbow_site" />
   </sensor>
 
 </mujoco>

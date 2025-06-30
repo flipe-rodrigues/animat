@@ -8,6 +8,9 @@
 ..##..##.....##.##........##.....##.##....##.....##....##....##
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
+
+import matplotlib
+matplotlib.use('Agg')
 import pickle
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -37,7 +40,7 @@ rnn = RNN(
     activation=tanh,
     alpha=1,  # reacher.model.opt.timestep / 10e-3,
 )
-target_duration = 10
+target_duration = 60
 env = SequentialReachingEnv(
     plant=reacher,
     target_duration={
@@ -45,7 +48,7 @@ env = SequentialReachingEnv(
         "min": target_duration,
         "max": target_duration,
     },
-    num_targets=20,
+    num_targets=3,
     loss_weights={
         "euclidean": 1,
         "manhattan": 0,
@@ -54,13 +57,12 @@ env = SequentialReachingEnv(
         "lasso": 0,
     },
 )
-models_dir = "../../models"
-# models_dir = "/Users/joseph/Documents/GitHub/animat/models"
+models_dir = "/Users/joseph/Documents/GitHub/animat/models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
 # model_file = "optimizer_gen_5000_tau10_rnn50.pkl"
-print("Current working directory:", os.getcwd())
+# print("Current working directory:", os.getcwd())
 with open(os.path.join(models_dir, model_file), "rb") as f:
     optimizer = pickle.load(f)
 best_rnn = rnn.from_params(optimizer.mean)
@@ -86,10 +88,17 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.ylabel("Hidden Units")
 env.feldman(
     best_rnn,
-    weight_mod=2,
+    weight_mod=1.5,
     weight_density=100,
     seed=0,
     render=True,
     log=True,
 )
+print("Simulation complete")
 env.plot()
+print("Plotting complete")
+
+with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/data/env_with_self.pkl', 'wb') as f:
+    pickle.dump(env, f)  # <-- `env` is the object (same as `self` inside)
+
+# %%
