@@ -32,7 +32,8 @@ from sklearn.decomposition import PCA
 .##.......##.....##.##.....##.##.....##
 .########..#######..##.....##.########.
 """
-reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
+reacher = SequentialReacher(plant_xml_file="arm_with_pulley_extensor.xml")
+# reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
 rnn = RNN(
     input_size=3 + reacher.num_sensors,
     hidden_size=25,
@@ -48,7 +49,7 @@ env = SequentialReachingEnv(
         "min": target_duration,
         "max": target_duration,
     },
-    num_targets=3,
+    num_targets=2,
     loss_weights={
         "euclidean": 1,
         "manhattan": 0,
@@ -58,7 +59,7 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
-models_dir = "../../models"
+# models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
@@ -89,17 +90,17 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.ylabel("Hidden Units")
 env.feldman(
     best_rnn,
-    weight_mod=1.5,
+    weight_mod=0.5,
     weight_density=100,
     seed=0,
-    render=True,
+    render=False,
     log=True,
 )
 print("Simulation complete")
 env.plot()
 print("Plotting complete")
 
-with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/data/env_with_self.pkl', 'wb') as f:
-    pickle.dump(env, f)  # <-- `env` is the object (same as `self` inside)
+# with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/data/env_with_self.pkl', 'wb') as f:
+#     pickle.dump(env, f)  # <-- `env` is the object (same as `self` inside)
 
 # %%
