@@ -1,32 +1,30 @@
 <mujoco model="two-joint-limb">
-  <option timestep="0.002"/>
 
   <visual>
     <map force="0.1" zfar="30" />
-    <rgba haze="0.15 0.25 0.35 1" />
-    <global offwidth="2560" offheight="1440" elevation="-45" azimuth="120" />
+    <rgba haze="0 0 0 1" />
+    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="0" />
+    <quality shadowsize="2048" />
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4"/>
   </visual>
 
   <asset>
-    <texture type="skybox" builtin="gradient" rgb1=".3 .5 .7" rgb2="0 0 0" width="32" height="512" />
-    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".1 .2 .3"
-      rgb2=".2 .3 .4" />
-    <material name="grid" texture="grid" texrepeat="10 10" texuniform="true" reflectance=".2" />
+    <!-- No skybox, no grid -->
+    <material name="arm_mat" rgba="0.8 0.7 0.6 1" specular="0.1" shininess="0.1" reflectance="0"/>
+    <material name="tendon_mat" rgba="1 1 1 1" specular="0" shininess="0" reflectance="0" emission="0.2"/>
   </asset>
 
   <default>
     <joint damping="0.1" />
     <muscle ctrllimited="true" ctrlrange="0 1" />
+    <geom material="arm_mat" />
+    <tendon material="tendon_mat" />
   </default>
 
   <worldbody>
-    <!-- LIGHTS -->
-    <light name="spotlight" mode="targetbodycom" target="hand" diffuse=".5 .5 .5"
-      specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30" />
-    <light name="top" pos="0 0 2" mode="trackcom" />
-
-    <!-- FLOOR-->
-    <geom name="floor" type="plane" pos="0 0 -.1" size="0 0 .01" material="grid" condim="3" />
+    <!-- No extra lights, just headlight for soft shading -->
+    <camera name="top" mode="fixed" pos="0 0 3.5" euler="0 0 0" fovy="30"/>
+    <!-- No floor, so background is black -->
 
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
@@ -91,23 +89,23 @@
   </equality>
 
   <tendon>
-    <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.005" rgba="1 0 1 1">
+    <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.008" rgba="1 0 1 1">
       <site site="deltoid1" />
       <site site="deltoid2" />
     </spatial>
 
-    <spatial name="latissimus_tendon" limited="true" range="0 1" width="0.005" rgba="1 1 0 1">
+    <spatial name="latissimus_tendon" limited="true" range="0 1" width="0.008" rgba="1 1 0 1">
       <site site="latissimus1" />
       <site site="latissimus2" />
     </spatial>
 
-    <spatial name="biceps_tendon" limited="true" range="0 .485" width="0.005" rgba="1 0 0 1">
+    <spatial name="biceps_tendon" limited="true" range="0 .485" width="0.008" rgba="1 0 0 1">
       <site site="biceps1" />
       <geom geom="humerus" />
       <site site="biceps2" />
     </spatial>
 
-    <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.005" rgba="0 1 0 1">
+    <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.008" rgba="0 1 0 1">
       <site site="triceps1" />
       <geom geom="radius" />
       <site site="triceps2" />
