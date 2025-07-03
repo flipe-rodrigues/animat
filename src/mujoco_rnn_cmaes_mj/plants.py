@@ -13,7 +13,7 @@ class SequentialReacher:
         xml_path = os.path.join(mj_dir, plant_xml_file)
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
-        self.num_sensors = self.model.nsensor
+        self.num_sensors = self.model.nu * 3  # Assuming 3 sensors per actuator
         self.num_actuators = self.model.nu
         self.viewer = None
 
@@ -22,10 +22,12 @@ class SequentialReacher:
 
         # Get the hand's default mass value
         self.hand_default_mass = self.model.body_mass[self.hand_id]
-
         self.hand_force_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_SENSOR, "hand_force"
         )
+
+        # Find the index of the body whose mass you want to change
+        self.weight_id = self.model.geom(name="weight").id
 
         # Load sensor stats
         sensor_stats_path = os.path.join(mj_dir, "sensor_stats.pkl")
@@ -53,47 +55,6 @@ class SequentialReacher:
             self.data.qpos[i] = np.random.uniform(np.deg2rad(-60), np.deg2rad(60))
         mujoco.mj_forward(self.model, self.data)
 
-    # def fabrik(self, position):
-    #     """FABRIK algorithm to solve inverse kinematics for a 2D arm"""
-    #     # Initialize the arm configuration
-    #     arm_length = 0.1  # Length of each arm segment
-    #     num_segments = 2  # Number of segments in the arm
-    #     arm_positions = np.zeros((num_segments + 1, 2))  # (x, y) positions of each segment
-    #     arm_positions[0] = self.data.mocap_pos[0][:2]  # Start from the current position
-
-    #     pass
-
-    def solve_ik(self, position, max_iters=100, tol=1e-4, alpha=0.5
-    ):
-        dof_idxs = [self.model.jnt_dofadr[j] for j in [0, 1]]
-
-        for i in range(max_iters):
-            mujoco.mj_forward(self.model, self.data)
-
-            current_pos = self.data.site_xpos[self.hand_id].copy()
-            error = position - current_pos
-
-            if np.linalg.norm(error) < tol:
-                break
-
-            # Compute Jacobian: J is (3 x nv), but we only care about 2 columns (our 2 joints)
-            J = np.zeros((3, self.model.nv))
-            mujoco.mj_jacSite(self.model, self.data, J, None, self.hand_id)
-
-            # Extract Jacobian columns for our joints
-            J_reduced = J[:, dof_idxs]  # shape (3, 2)
-
-            # Least squares update (pseudo-inverse)
-            dq = alpha * np.linalg.pinv(J_reduced) @ error
-
-            # Apply update and clip to joint limits
-            for i, dof in enumerate(dof_idxs):
-                new_angle = self.data.qpos[dof] + dq[i]
-                low, high = np.deg2rad(-60), np.deg2rad(60)
-                self.data.qpos[dof] = np.clip(new_angle, low, high)
-
-        mujoco.mj_forward(self.model, self.data)
-
     def sample_targets(self, num_samples=10):
         return self.candidate_targets.sample(num_samples).values
 
@@ -104,8 +65,6 @@ class SequentialReacher:
 
     def update_nail(self, position):
         """Update the position of the nail"""
-        # self.randomize_configuration()
-        # self.solve_ik(position)
         self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
         self.data.mocap_pos[1] = position  # self.get_hand_pos()
@@ -120,7 +79,7 @@ class SequentialReacher:
 
     def get_obs(self):
         target_position = self.data.mocap_pos[0].copy()
-        sensor_data = self.data.sensordata.copy()
+        sensor_data = self.data.sensordata[0 : self.num_sensors].copy()
         norm_target_position = zscore(
             target_position,
             self.hand_position_stats["mean"].values,

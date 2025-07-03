@@ -28,14 +28,14 @@ from scipy.ndimage import binary_fill_holes
 """
 
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "../../mujoco/arm_model.xml"
+MODEL_XML_PATH = "../../mujoco/arm.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 36000  # seconds
+dur2run = 3600  # seconds
 time_data = []
 hand_position_data = {
     "x": [],

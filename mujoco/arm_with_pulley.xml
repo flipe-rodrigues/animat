@@ -1,0 +1,164 @@
+<mujoco model="two-joint-limb">
+  <option timestep="0.002" />
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <global offwidth="2560" offheight="1440" elevation="-45" azimuth="120" />
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1=".3 .5 .7" rgb2="0 0 0" width="32" height="512" />
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1=".1 .2 .3"
+      rgb2=".2 .3 .4" />
+    <material name="grid" texture="grid" texrepeat="10 10" texuniform="true" reflectance=".2" />
+  </asset>
+
+  <default>
+    <joint damping="0.1" />
+    <muscle ctrllimited="true" ctrlrange="0 1" />
+  </default>
+
+  <worldbody>
+
+    <!-- LIGHTS -->
+    <light name="spotlight" mode="targetbodycom" target="hand" diffuse=".5 .5 .5"
+      specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30" />
+    <light name="top" pos="0 0 2" mode="trackcom" />
+
+    <!-- FLOOR-->
+    <geom name="floor" type="plane" pos="0 0 -2" size="0 0 .01" material="grid" condim="3" />
+
+    <!-- weight -->
+    <body name="weight" pos="-1 -.75 -1">
+      <joint axis="0 0 1" pos="0 0 .025" type="slide" />
+      <geom name="weight" type="cylinder" size=".03 .025" mass="1" rgba=".2 .2 .5 1" />
+      <site name="s1" pos="0 0 .025" />
+    </body>
+
+    <!-- pulley site -->
+    <site name="pulley" pos="-1 -.75 0" />
+
+    <!-- TRUNK -->
+    <body name="trunk" pos="0 0 0">
+
+      <!-- tendon attachment sites -->
+      <site name="deltoid1" pos=".25 0 0" size="0.01" />
+      <site name="latissimus1" pos="-0.25 0 0" size="0.01" />
+
+      <!-- UPPER ARM -->
+      <body name="upper_arm" pos="0 0 0">
+
+        <!-- shoulder -->
+        <joint name="shoulder" type="hinge" axis="0 0 1" range="-1e-3 1e-3" />
+
+        <!-- tendon attachment sites -->
+        <site name="deltoid2" pos="0.025 -.1 0" size="0.01" />
+        <site name="latissimus2" pos="-0.025 -.1 0" size="0.01" />
+        <site name="biceps1" pos="0.05 0 0" size="0.01" />
+        <site name="triceps1" pos="-0.05 0 0" size="0.01" />
+
+        <!-- humerus -->
+        <geom name="humerus" type="cylinder" size="0.025" fromto="0 0 0 0 -.4 0" />
+
+        <!-- LOWER ARM -->
+        <body name="lower_arm" pos="0 -0.4 0">
+
+          <!-- elbow -->
+          <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" />
+          <site name="elbow_site" pos="0 0 0" size="0.01" />
+
+          <!-- tendon attachment sites -->
+          <site name="biceps2" pos=".1 .03 0" size="0.01" />
+          <site name="triceps2" pos="-.08 0 0" size="0.01" />
+
+          <!-- radius -->
+          <geom name="radius" type="cylinder" size="0.025" fromto="-.075 0 0 .5 0 0" />
+
+          <!-- HAND -->
+          <body name="hand" pos="0.5 0 0">
+            <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" />
+            <site name="nail2" pos="0 0 0" />
+            <site name="s3" pos="0 0 0" />
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- TARGET -->
+    <body name="target" mocap="true" pos="0 0 0">
+      <geom name="target" size=".025" type="sphere" contype="0" conaffinity="0"
+        rgba="0 .75 1 1" />
+    </body>
+
+    <!-- NAIL -->
+    <body name="nail" mocap="true" pos="0 0 0">
+      <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
+        conaffinity="0" rgba="1 1 1 1" />
+      <site name="nail1" pos="0 0 0" />
+    </body>
+  </worldbody>
+
+  <equality>
+    <connect name="nail_eq" active="false" site1="nail1" site2="nail2" />
+  </equality>
+
+  <tendon>
+    <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.005" rgba="1 0 1 1">
+      <site site="deltoid1" />
+      <site site="deltoid2" />
+    </spatial>
+
+    <spatial name="latissimus_tendon" limited="true" range="0 1" width="0.005" rgba="1 1 0 1">
+      <site site="latissimus1" />
+      <site site="latissimus2" />
+    </spatial>
+
+    <spatial name="biceps_tendon" limited="true" range="0 .485" width="0.005" rgba="1 0 0 1">
+      <site site="biceps1" />
+      <geom geom="humerus" />
+      <site site="biceps2" />
+    </spatial>
+
+    <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.005" rgba="0 1 0 1">
+      <site site="triceps1" />
+      <geom geom="radius" />
+      <site site="triceps2" />
+    </spatial>
+
+    <!-- Tendon with Pulleys -->
+    <spatial range="0 2" limited="true" width=".002" rgba=".95 .3 .3 1">
+      <site site="s1" />
+      <site site="pulley" />
+      <geom geom="hand" />
+      <site site="s3" />
+    </spatial>
+
+  </tendon>
+
+  <actuator>
+    <muscle name="deltoid" tendon="deltoid_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+    <muscle name="latissimus" tendon="latissimus_tendon" ctrlrange="0 1" force="100"
+      timeconst=".01 .04" />
+    <muscle name="biceps" tendon="biceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+    <muscle name="triceps" tendon="triceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+  </actuator>
+
+  <sensor>
+    <actuatorpos name="deltoid_length" actuator="deltoid" />
+    <actuatorpos name="latissimus_length" actuator="latissimus" />
+    <actuatorpos name="biceps_length" actuator="biceps" />
+    <actuatorpos name="triceps_length" actuator="triceps" />
+    <actuatorvel name="deltoid_velocity" actuator="deltoid" />
+    <actuatorvel name="latissimus_velocity" actuator="latissimus" />
+    <actuatorvel name="biceps_velocity" actuator="biceps" />
+    <actuatorvel name="triceps_velocity" actuator="triceps" />
+    <actuatorfrc name="deltoid_force" actuator="deltoid" />
+    <actuatorfrc name="latissimus_force" actuator="latissimus" />
+    <actuatorfrc name="biceps_force" actuator="biceps" />
+    <actuatorfrc name="triceps_force" actuator="triceps" />
+
+    <torque name="elbow_torque" site="elbow_site" />
+  </sensor>
+
+</mujoco>
