@@ -1,8 +1,8 @@
 mjx_brax_env_py311/
 *.zip
 venv/
-<<<<<<< HEAD
 venv310/
+venv311/
 # Additional ignores
 *.mp4
 *.avi
@@ -43,6 +43,3 @@ eval_logs*/
 # Training outputs
 outcmaes/
 *.prof
-=======
-.venv/
->>>>>>> ae1a4a53eef2fb9f86257f6a9d0a3ce31e57c2dd
