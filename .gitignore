@@ -1,3 +1,44 @@
 mjx_brax_env_py311/
 *.zip
 venv/
+venv310/
+# Additional ignores
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.gif
+
+# Pickle files
+*.pkl
+*.pickle
+
+# Virtual environments
+venv*/
+.venv*/
+env/
+.env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Zone Identifier files from Windows
+*.Zone.Identifier
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Log files
+*.log
+MUJOCO_LOG.TXT
+
+# Tensorboard logs
+tensorboard_logs*/
+eval_logs*/
+
+# Training outputs
+outcmaes/
+*.prof
