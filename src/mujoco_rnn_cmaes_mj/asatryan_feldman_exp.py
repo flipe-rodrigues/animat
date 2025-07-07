@@ -32,8 +32,8 @@ from sklearn.decomposition import PCA
 .##.......##.....##.##.....##.##.....##
 .########..#######..##.....##.########.
 """
-reacher = SequentialReacher(plant_xml_file="arm_with_pulley_extensor.xml")
-# reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
+# reacher = SequentialReacher(plant_xml_file="arm_with_pulley_extensor.xml")
+reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
 rnn = RNN(
     input_size=3 + reacher.num_sensors,
     hidden_size=25,
