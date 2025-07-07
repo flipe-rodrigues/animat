@@ -1,0 +1,18 @@
+[
+  {
+    "unit_idx": 0,
+    "unit_type": "prime_mover",
+    "is_responsive": true,
+    "metrics": {
+      "mean_force_magnitude": 0.2633785009384155,
+      "max_force_magnitude": 0.2633785605430603,
+      "directional_consistency": 0.9999996423721313,
+      "spatial_coherence": 1.0000001192092896,
+      "force_variance": 3.552713678800501e-15
+    },
+    "convergence_point": [
+      0.09999999999999998,
+      -0.15000000000000002,
+      0.0
+    ],
+    "promising_for_plot": 

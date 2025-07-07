@@ -1,0 +1,9 @@
+{
+  "total_units": 64,
+  "responsive_units": 64,
+  "unit_type_distribution": {
+    "prime_mover": 58,
+    "directional": 6
+  },
+  "promising_units": 64
+}
