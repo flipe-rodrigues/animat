@@ -3,10 +3,12 @@
 .####.##.....##.########...#######..########..########..######.
 ..##..###...###.##.....##.##.....##.##.....##....##....##....##
 ..##..####.####.##.....##.##.....##.##.....##....##....##......
-..##..##.###.##.########..##.....##.########.....##.....######.
+..##..##.###.##.########..##.....##.
+########.....##.....######.
 ..##..##.....##.##........##.....##.##...##......##..........##
 ..##..##.....##.##........##.....##.##....##.....##....##....##
-.####.##.....##.##.........#######..##.....##....##.....######.
+.####.##.....##.##.........
+#######..##.....##....##.....######.
 """
 
 import matplotlib
@@ -32,8 +34,9 @@ from sklearn.decomposition import PCA
 .##.......##.....##.##.....##.##.....##
 .########..#######..##.....##.########.
 """
-# reacher = SequentialReacher(plant_xml_file="arm_with_pulley_extensor.xml")
-reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
+# xml_file = "arm_with_pulley_flexor.xml"
+xml_file = "arm_with_pulley_extensor.xml"
+reacher = SequentialReacher(plant_xml_file=xml_file)
 # # Ensure the XML file contains a geometry named "weight" or use an existing geometry name
 # reacher = SequentialReacher(plant_xml_file="arm_just_arm.xml")  # Update XML if needed
 
@@ -62,7 +65,7 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
-# models_dir = "../../models"
+models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
@@ -92,23 +95,7 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
 
-
-
-# env.feldman(
-#     best_rnn,
-#     weight_mod=0.5,
-#     weight_density=100,
-#     seed=0,
-#     render=False,
-#     log=True,
-# )
-# print("Simulation complete")
-# env.plot()
-# print("Plotting complete")
-
-
-
-env.passive(
+env.feldman(
     best_rnn,
     weight_mod=0.5,
     weight_density=100,
@@ -116,7 +103,21 @@ env.passive(
     render=False,
     log=True,
 )
+print("Simulation complete")
+save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
+save_path = "C:\\Users\\User\\Desktop\\tests"
+env.plot(save_path=save_path)
+print("Plotting complete")
 
-env.plot_passive()
+# env.passive(
+#     best_rnn,
+#     weight_mod=0.5,
+#     weight_density=100,
+#     seed=0,
+#     render=False,
+#     log=True,
+# )
+
+# env.plot_passive()
 
 # %%

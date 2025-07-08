@@ -11,6 +11,7 @@ class SequentialReacher:
 
         mj_dir = os.path.join(get_root_path(), "mujoco")
         xml_path = os.path.join(mj_dir, plant_xml_file)
+        self.xml = plant_xml_file
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         self.num_sensors = self.model.nu * 3  # Assuming 3 sensors per actuator

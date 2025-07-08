@@ -17,6 +17,7 @@ from plants import SequentialReacher
 from networks import RNN
 from utils import *
 import matplotlib as mpl
+import os
 
 
 """
@@ -391,43 +392,35 @@ class SequentialReachingEnv:
         self.plant.reset()
 
         target_positions = self.plant.sample_targets(self.num_targets)
-        # # For bicep
-        # target_positions = [[0.5, -0.6, 0.],
-        #                     [0.6, -0.5, 0.]]
-        
-        # # For tricep
-        # target_positions = [[0.45, -0.6, 0.],
-        #                     [0.35, -0.75, 0.]]
-
-        # # Just messing about
-        # target_positions = [[0, -0.4, 0],
-        #                     [0, 0, 0]]
         
         # For bicep
-        angles = [325, 345]
+        if "flexor" in self.plant.xml:
+            angles = [325, 345]
 
-        for i, angle in enumerate(angles):
-            angle = np.radians(angle)  # Convert angle to radians
-            x = 0 + 0.5 * np.cos(angle)  # x-coordinate
-            y = -0.4 + 0.5 * np.sin(angle)  # y-coordinate
-            z = 0  # z-coordinate remains the same
-            coordinates = [x, y, z]
-            target_positions[i] = coordinates
+            for i, angle in enumerate(angles):
+                angle = np.radians(angle)  # Convert angle to radians
+                x = 0 + 0.5 * np.cos(angle)  # x-coordinate
+                y = -0.4 + 0.5 * np.sin(angle)  # y-coordinate
+                z = 0  # z-coordinate remains the same
+                coordinates = [x, y, z]
+                target_positions[i] = coordinates
 
-
-        # # For tricep
-        # angles = [25, 5]
-
-        # for i, angle in enumerate(angles):
-        #     angle = np.radians(angle)  # Convert angle to radians
-        #     x = 0 + 0.5 * np.cos(angle)  # x-coordinate
-        #     y = -0.4 + 0.5 * np.sin(angle)  # y-coordinate
-        #     z = 0  # z-coordinate remains the same
-        #     coordinates = [x, y, z]
-        #     target_positions[i] = coordinates
-
-
+            print("Flexor!")    
         
+        # For tricep
+        elif "extensor" in self.plant.xml:
+            angles = [25, 5]
+
+            for i, angle in enumerate(angles):
+                angle = np.radians(angle)  # Convert angle to radians
+                x = 0 + 0.5 * np.cos(angle)  # x-coordinate
+                y = -0.4 + 0.5 * np.sin(angle)  # y-coordinate
+                z = 0  # z-coordinate remains the same
+                coordinates = [x, y, z]
+                target_positions[i] = coordinates
+
+            print("Extensor!")    
+
         target_durations = truncated_exponential(
             mu=self.target_duration["mean"],
             a=self.target_duration["min"],
@@ -555,8 +548,6 @@ class SequentialReachingEnv:
 
         self.plant.close()
 
-
-
         self.elbow_torque_log = elbow_torque_log
         self.elbow_angle_log = elbow_angle_log
         self.elbow_torque_sensor_log = elbow_torque_sensor_log
@@ -579,16 +570,20 @@ class SequentialReachingEnv:
     """
 
     # Set default font to Helvetica
-    mpl.rcParams['font.family'] = 'Helvetica'
+    # mpl.rcParams['font.family'] = 'Helvetica'
 
 
-    def plot(self):
+    def plot(self, save_path):
         #
 
         timesteps = np.arange(len(self.elbow_torque_log))
         time_sec = timesteps * self.plant.model.opt.timestep
 
         if hasattr(self, "elbow_torque_log"):
+
+            muscle_id = "flexor" if "flexor" in self.plant.xml else "extensor"
+
+            # Plotting for flexor only
             session_fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(8, 7), sharex=True)
 
             # Plot weight log on the first subplot
@@ -629,9 +624,11 @@ class SequentialReachingEnv:
             bicep_activation = np.array(self.action_log)[:, 2]
             tricep_activation = np.array(self.action_log)[:, 3]
 
+            muscle_activation = bicep_activation if "flexor" in self.plant.xml else tricep_activation
+
             # Plot raw and smoothed bicep activation
-            ax4.plot(time_sec, bicep_activation, color="purple", alpha=0.5, linewidth=0.5, label="Raw")
-            smoothed_bicep = np.convolve(bicep_activation, np.ones(100)/100, mode='same')  # Larger smoothing window
+            ax4.plot(time_sec, muscle_activation, color="purple", alpha=0.5, linewidth=0.5, label="Raw")
+            smoothed_bicep = np.convolve(muscle_activation, np.ones(100)/100, mode='same')  # Larger smoothing window
             ax4.plot(time_sec, smoothed_bicep, color="purple", linewidth=2, label="Smoothed")
 
             # # Plot raw and smoothed tricep activation
@@ -639,7 +636,9 @@ class SequentialReachingEnv:
             # smoothed_tricep = np.convolve(tricep_activation, np.ones(100)/100, mode='same')  # Larger smoothing window
             # ax4.plot(time_sec, smoothed_tricep, color="orange", linewidth=2, label="Tricep (Smoothed)")
 
-            ax4.set_ylabel("Bicep Activation")
+            muscle_label = "Bicep" if "flexor" in self.plant.xml else "Tricep"
+
+            ax4.set_ylabel(f"{muscle_label} Activation")
             ax4.legend(loc="upper right", frameon=False)  # Remove grey box
             ax4.spines['top'].set_visible(False)
             ax4.spines['right'].set_visible(False)
@@ -660,10 +659,11 @@ class SequentialReachingEnv:
             ax5.grid(False)
 
             session_fig.tight_layout()
-            plt.savefig('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/elbow_torque_angle_weight.png', dpi=900)
+
+            file_name = f"elbow_torque_angle_weight_{muscle_id}"
+            png_file = os.path.join(save_path, f"{file_name}.png")
+            plt.savefig(png_file, dpi=900)
             plt.show()
-
-
 
             # Split logs based on weight_update_period
             torque_segments = []
@@ -683,8 +683,6 @@ class SequentialReachingEnv:
             bicep_segments = [segment[:, 2] for segment in action_segments]
             tricep_segments = [segment[:, 3] for segment in action_segments]
 
-
-            
             # Find the average torque and angle for the second half of each segment
             avg_torque = [np.mean(segment[len(segment)//2:]) for segment in torque_segments]
             avg_angle = [np.mean(segment[len(segment)//2:]) for segment in angle_segments]
@@ -692,240 +690,184 @@ class SequentialReachingEnv:
             avg_bicep = [np.mean(segment[len(segment)//2:]) for segment in bicep_segments]
             avg_tricep = [np.mean(segment[len(segment)//2:]) for segment in tricep_segments]
 
-
-
-
-        #region OLD code
-        #     # Scatter plot of avg_torque vs avg_angle
-        #     plt.figure(figsize=(6, 4))
-        #     num_segments_to_plot = len(torque_segments)/self.num_targets
-        #     # plt.scatter(avg_angle_degrees[:int(num_segments_to_plot)], avg_torque[:int(num_segments_to_plot)], color='purple', label='First target')
-        #     # plt.scatter(avg_angle_degrees[int(num_segments_to_plot):], avg_torque[int(num_segments_to_plot):], color='green', label='Second target')
-        #     # plt.scatter(avg_angle_degrees[int(num_segments_to_plot):], avg_torque[int(num_segments_to_plot):], color='red', label='Third target')
-        #     plt.xlabel("Average Angle (degrees)")
-        #     colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
-        #     for target_idx in range(self.num_targets):
-        #         start_idx = target_idx * int(num_segments_to_plot)
-        #         end_idx = (target_idx + 1) * int(num_segments_to_plot)
-        #         odd_indices = list(range(start_idx + 1, end_idx, 2))
-        #         indices_to_plot = [start_idx] + odd_indices
-        #         plt.scatter([avg_angle_degrees[i] for i in indices_to_plot], 
-        #                     [avg_torque[i] for i in indices_to_plot], 
-        #                     color=colors[target_idx % len(colors)], 
-        #                     label=f'Target {target_idx + 1}',alpha=0.7)
-        #     plt.ylabel("Average Torque (Nm)")
-        #     plt.title("Average Torque vs Average Angle")
-        #     plt.grid(False)
-        #     plt.legend()
-
-        #     # Option to save the figure
-        #     save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_2.png'
-        #     plt.savefig(save_path, dpi=900)
-
-        #     plt.show()
-
-
-
-        # # Scatter plot of avg bicep input vs avg_angle
-        #     plt.figure(figsize=(6, 4))
-        #     num_segments_to_plot = len(torque_segments)/self.num_targets
-        #     plt.xlabel("Average Angle (degrees)")
-        #     colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
-        #     for target_idx in range(self.num_targets):
-        #         start_idx = target_idx * int(num_segments_to_plot)
-        #         end_idx = (target_idx + 1) * int(num_segments_to_plot)
-        #         odd_indices = list(range(start_idx + 1, end_idx, 2))
-        #         indices_to_plot = [start_idx] + odd_indices
-        #         plt.scatter([avg_angle_degrees[i] for i in indices_to_plot], 
-        #                     [avg_bicep[i] for i in indices_to_plot], 
-        #                     color=colors[target_idx % len(colors)], 
-        #                     label=f'Target {target_idx + 1}',alpha=0.7)
-        #     plt.ylabel("Average Bicep Input")
-        #     plt.title("Average Bicep Activation vs Average Angle")
-        #     plt.grid(False)
-        #     plt.legend()
-
-        #     # Option to save the figure
-        #     save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_bicep_input_vs_avg_angle.png'
-        #     plt.savefig(save_path, dpi=900)
-
-        #     plt.show()
-        #endregion
-
-
-
-
+            # Save settings
+            flexor_only_file_name = "avg_torque_vs_avg_angle_with_muscle_activity"
+            flexor_only_pickle_file = os.path.join(save_path, f"{flexor_only_file_name}.fig.pickle")
+            flexor_extensor_file_name = "avg_torque_vs_avg_angle_with_flexor_and_extensor"
+            flexor_extensor_pickle_file = os.path.join(save_path, f"{flexor_extensor_file_name}.fig.pickle")
 
             # BICEP
-            # Scatter plot of avg_torque vs avg_angle with bicep muscle activity as error bars
-            fig = plt.figure(figsize=(5, 5))  # Make the plot square
-            num_segments_to_plot = len(torque_segments) / self.num_targets
-            plt.xlabel("Average Elbow Angle (°)")
-            colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
+            if "flexor" in self.plant.xml:
+            
+                # Scatter plot of avg_torque vs avg_angle with bicep muscle activity as error bars
+                fig = plt.figure(figsize=(5, 5))  # Make the plot square
+                num_segments_to_plot = len(torque_segments) / self.num_targets
+                plt.xlabel("Average Elbow Angle (°)")
+                colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
 
-            # Define error values (example: replace with your own error values)
-            torque_errors = avg_bicep  # Example: constant error for torques
+                # Define error values (example: replace with your own error values)
+                torque_errors = avg_bicep  # Example: constant error for torques
 
-            for target_idx in range(self.num_targets):
-                start_idx = target_idx * int(num_segments_to_plot)
-                end_idx = (target_idx + 1) * int(num_segments_to_plot)
-                odd_indices = list(range(start_idx + 1, end_idx, 2))
-                indices_to_plot = [start_idx] + odd_indices
+                for target_idx in range(self.num_targets):
+                    start_idx = target_idx * int(num_segments_to_plot)
+                    end_idx = (target_idx + 1) * int(num_segments_to_plot)
+                    odd_indices = list(range(start_idx + 1, end_idx, 2))
+                    indices_to_plot = [start_idx] + odd_indices
 
-                # Extract data for plotting
-                angles = [avg_angle_degrees[i] for i in indices_to_plot]
-                torques = [avg_torque[i] for i in indices_to_plot]
-                errors = [torque_errors[i] for i in indices_to_plot]
+                    # Extract data for plotting
+                    angles = [avg_angle_degrees[i] for i in indices_to_plot]
+                    torques = [avg_torque[i] for i in indices_to_plot]
+                    errors = [torque_errors[i] for i in indices_to_plot]
 
-                # Normalised muscle activation
-                normalised_errors = (errors - np.min(errors))/ (np.max(errors) - np.min(errors))
-                cmap = plt.get_cmap("gray")
-                colors = cmap(normalised_errors)
+                    # Normalised muscle activation
+                    normalised_errors = (errors - np.min(errors))/ (np.max(errors) - np.min(errors))
+                    cmap = plt.get_cmap("gray")
+                    colors = cmap(normalised_errors)
 
-                # Sort points by average elbow torque
-                sorted_indices = np.argsort(torques)
-                sorted_angles = [angles[i] for i in sorted_indices]
-                sorted_torques = [torques[i] for i in sorted_indices]
+                    # Sort points by average elbow torque
+                    sorted_indices = np.argsort(torques)
+                    sorted_angles = [angles[i] for i in sorted_indices]
+                    sorted_torques = [torques[i] for i in sorted_indices]
 
-                # Join points with straight lines in sorted order
-                plt.plot(sorted_angles, sorted_torques, color='black', linewidth=2, alpha=1, zorder=2)
+                    # Join points with straight lines in sorted order
+                    plt.plot(sorted_angles, sorted_torques, color='black', linewidth=2, alpha=1, zorder=2)
 
-                # Plot error bars
-                plt.errorbar(
-                    angles,
-                    torques,
-                    yerr=[[0] * len(indices_to_plot), errors],
-                    fmt='o',
-                    markerfacecolor='white',  # Grayscale based on normalized errors
-                    markeredgecolor='black',  # Black edge
-                    ecolor='lightgrey',  # Set error bars to lighter grey
-                    alpha=1,
-                    zorder=1
-                )
+                    # Plot error bars
+                    plt.errorbar(
+                        angles,
+                        torques,
+                        yerr=[[0] * len(indices_to_plot), errors],
+                        fmt='o',
+                        markerfacecolor='white',  # Grayscale based on normalized errors
+                        markeredgecolor='black',  # Black edge
+                        ecolor='lightgrey',  # Set error bars to lighter grey
+                        alpha=1,
+                        zorder=1
+                    )
 
-                plt.scatter(
-                    angles,
-                    torques,
-                    c=colors,  # RGBA or RGB colors per point
-                    edgecolors='black',  # Black edge for better visibility
-                    zorder=3
-                )         
+                    plt.scatter(
+                        angles,
+                        torques,
+                        c=colors,  # RGBA or RGB colors per point
+                        edgecolors='black',  # Black edge for better visibility
+                        zorder=3
+                    )         
 
-            # Add a horizontal line at y = 0
-            plt.axhline(y=0, color='black', linestyle='--', linewidth=0.8)
+                # Add a horizontal line at y = 0
+                plt.axhline(y=0, color='black', linestyle='--', linewidth=0.8)
 
-            plt.ylabel("Average Elbow Torque (Nm)")
-            plt.title("Bicep and Tricep Unloading Responses")
-            plt.grid(False)
+                plt.ylabel("Average Elbow Torque (Nm)")
+                plt.title("Bicep and Tricep Unloading Responses")
+                plt.grid(False)
 
-            # Remove top and right axes
-            plt.gca().spines['top'].set_visible(False)
-            plt.gca().spines['right'].set_visible(False)
+                # Remove top and right axes
+                plt.gca().spines['top'].set_visible(False)
+                plt.gca().spines['right'].set_visible(False)
 
-            # Only show ticks on the left and bottom axes
-            plt.gca().yaxis.set_ticks_position('left')
-            plt.gca().xaxis.set_ticks_position('bottom')
+                # Only show ticks on the left and bottom axes
+                plt.gca().yaxis.set_ticks_position('left')
+                plt.gca().xaxis.set_ticks_position('bottom')
 
-            # Set ticks every 0.5
-            plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
-            plt.ylim([-1.5, 1.5])
+                # Set ticks every 0.5
+                plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+                plt.ylim([-1.5, 1.5])
 
+                # Save the figure to a pickle file
+                with open(flexor_only_pickle_file, 'wb') as f:
+                    pickle.dump(fig, f)
+                print(f"Figure saved to {flexor_only_pickle_file}")
 
-            with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_muscle_activity.fig.pickle', 'wb') as f:
-                pickle.dump(fig, f)
+                # Option to save the figure
+                png_file = os.path.join(save_path, f"{flexor_only_file_name}.png")
+                plt.savefig(png_file, dpi=900)
+                print(f"Figure saved to {png_file}")
 
-            # Option to save the figure
-            save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_muscle_activity.png'
-            plt.savefig(save_path, dpi=900)
-
-            plt.show()
-
-
-
-
+                plt.show()
 
             # # EXTENSOR
-            # # If now wanting to plot tricep (extensor) data
-            # with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_muscle_activity.fig.pickle', 'rb') as f:
-            #     fig = pickle.load(f)
-            # plt.figure(fig.number)
+            elif "extensor" in self.plant.xml:
+                
+                # If now wanting to plot tricep (extensor) data
+                with open(flexor_only_pickle_file, 'rb') as f:
+                    fig = pickle.load(f)
+                plt.figure(fig.number)
 
-            # # Scatter plot of avg_torque vs avg_angle with tricep muscle activity as error bars
-            # num_segments_to_plot = len(torque_segments) / self.num_targets
-            # plt.xlabel("Average Elbow Angle (°)")
-            # colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
+                # Scatter plot of avg_torque vs avg_angle with tricep muscle activity as error bars
+                num_segments_to_plot = len(torque_segments) / self.num_targets
+                plt.xlabel("Average Elbow Angle (°)")
+                colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
 
-            # # Define error values (example: replace with your own error values)
-            # torque_errors = avg_tricep  # Example: constant error for torques
+                # Define error values (example: replace with your own error values)
+                torque_errors = avg_tricep  # Example: constant error for torques
 
-            # for target_idx in range(self.num_targets):
-            #     start_idx = target_idx * int(num_segments_to_plot)
-            #     end_idx = (target_idx + 1) * int(num_segments_to_plot)
-            #     odd_indices = list(range(start_idx + 1, end_idx, 2))
-            #     indices_to_plot = [start_idx] + odd_indices
+                for target_idx in range(self.num_targets):
+                    start_idx = target_idx * int(num_segments_to_plot)
+                    end_idx = (target_idx + 1) * int(num_segments_to_plot)
+                    odd_indices = list(range(start_idx + 1, end_idx, 2))
+                    indices_to_plot = [start_idx] + odd_indices
 
-            #     # Extract data for plotting
-            #     angles = [avg_angle_degrees[i] for i in indices_to_plot]
-            #     torques = [avg_torque[i] for i in indices_to_plot]
-            #     errors = [torque_errors[i] for i in indices_to_plot]
+                    # Extract data for plotting
+                    angles = [avg_angle_degrees[i] for i in indices_to_plot]
+                    torques = [avg_torque[i] for i in indices_to_plot]
+                    errors = [torque_errors[i] for i in indices_to_plot]
 
-            #     # Normalised muscle activation
-            #     normalised_errors = (errors - np.min(errors))/ (np.max(errors) - np.min(errors))
-            #     cmap = plt.get_cmap("gray")
-            #     colors = cmap(normalised_errors)
+                    # Normalised muscle activation
+                    normalised_errors = (errors - np.min(errors))/ (np.max(errors) - np.min(errors))
+                    cmap = plt.get_cmap("gray")
+                    colors = cmap(normalised_errors)
 
-            #     # Sort points by average elbow torque
-            #     sorted_indices = np.argsort(torques)
-            #     sorted_angles = [angles[i] for i in sorted_indices]
-            #     sorted_torques = [torques[i] for i in sorted_indices]
+                    # Sort points by average elbow torque
+                    sorted_indices = np.argsort(torques)
+                    sorted_angles = [angles[i] for i in sorted_indices]
+                    sorted_torques = [torques[i] for i in sorted_indices]
 
-            #     # Join points with straight lines in sorted order
-            #     plt.plot(sorted_angles, sorted_torques, color='black', linewidth=2, alpha=1, zorder=2)
+                    # Join points with straight lines in sorted order
+                    plt.plot(sorted_angles, sorted_torques, color='black', linewidth=2, alpha=1, zorder=2)
 
-            #     # Plot error bars
-            #     plt.errorbar(
-            #         angles,
-            #         torques,
-            #         yerr=[[0] * len(indices_to_plot), errors],
-            #         fmt='o',
-            #         markerfacecolor='white',  # Grayscale based on normalized errors
-            #         markeredgecolor='black',  # Black edge
-            #         ecolor='lightgrey',  # Set error bars to lighter grey
-            #         alpha=1,
-            #         zorder=1
-            #     )
+                    # Plot error bars
+                    plt.errorbar(
+                        angles,
+                        torques,
+                        yerr=[[0] * len(indices_to_plot), errors],
+                        fmt='o',
+                        markerfacecolor='white',  # Grayscale based on normalized errors
+                        markeredgecolor='black',  # Black edge
+                        ecolor='lightgrey',  # Set error bars to lighter grey
+                        alpha=1,
+                        zorder=1
+                    )
 
-            #     plt.scatter(
-            #         angles,
-            #         torques,
-            #         c=colors,  # RGBA or RGB colors per point
-            #         edgecolors='black',  # Black edge for better visibility
-            #         zorder=3
-            #     )         
+                    plt.scatter(
+                        angles,
+                        torques,
+                        c=colors,  # RGBA or RGB colors per point
+                        edgecolors='black',  # Black edge for better visibility
+                        zorder=3
+                    )         
 
-            # plt.ylabel("Average Elbow Torque (Nm)")
-            # plt.grid(False)
+                plt.ylabel("Average Elbow Torque (Nm)")
+                plt.grid(False)
 
-            # # Remove top and right axes
-            # plt.gca().spines['top'].set_visible(False)
-            # plt.gca().spines['right'].set_visible(False)
+                # Remove top and right axes
+                plt.gca().spines['top'].set_visible(False)
+                plt.gca().spines['right'].set_visible(False)
 
-            # # Only show ticks on the left and bottom axes
-            # plt.gca().yaxis.set_ticks_position('left')
-            # plt.gca().xaxis.set_ticks_position('bottom')
+                # Only show ticks on the left and bottom axes
+                plt.gca().yaxis.set_ticks_position('left')
+                plt.gca().xaxis.set_ticks_position('bottom')
 
-            # # Set ticks every 0.5
-            # plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+                # Set ticks every 0.5
+                plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
 
 
-            # with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_flexor_and_extensor.fig.pickle', 'wb') as f:
-            #     pickle.dump(fig, f)
+                with open(flexor_extensor_pickle_file, 'wb') as f:
+                    pickle.dump(fig, f)
 
-            # # Option to save the figure
-            # save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_flexor_and_extensor_activity.png'
-            # plt.savefig(save_path, dpi=900)
+                # Option to save the figure
+                png_file = os.path.join(save_path, f"{flexor_extensor_file_name}.png")
+                plt.savefig(png_file, dpi=900)
 
-            # plt.show()
+                plt.show()
 
 
 
