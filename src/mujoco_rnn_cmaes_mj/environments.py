@@ -259,13 +259,65 @@ class SequentialReachingEnv:
     .##........##.....##.##....##.##....##..##....##.##...##......
     .##........##.....##..######...######..####....###....########
     """
-    def passive(self, rnn, units, action_modifier=1, delay=1, seed=0, render=False): # RIGHT NOW THIS A COPY OF THE BIZZI STUFF
-        """Evaluate fitness of a given RNN policy"""
+    def passive(self, rnn, seed=0, weight_mod=1, weight_density=100, render=False, log=False):
+        """Move the forearm passively through its range of motion"""
         np.random.seed(seed)
+
+        # Points to move the hand to in space.
+        passive_hand_positions = []
+        num_passive_targets = 10
+        max_angle = -80         # In world space coordinates. Right is 0 degrees. Down is 270 degrees.
+        min_angle = 70
+        passive_target_angles = np.linspace(min_angle, max_angle, num_passive_targets)
+        print(passive_target_angles)
+
+        for i in range(len(passive_target_angles)):
+            angle = np.radians(passive_target_angles[i])  # Convert angle to radians
+            x = 0 + 0.5 * np.cos(angle)  # x-coordinate
+            y = -0.4 + 0.5 * np.sin(angle)  # y-coordinate
+            z = 0  # z-coordinate remains the same
+            coordinates = [x, y, z]
+            passive_hand_positions.append(coordinates)
+        
+        print('Passive target positions:', passive_hand_positions)
+
+        # Plot and save the passive target positions (x and y only)
+        import matplotlib.pyplot as plt
+
+        # Convert passive_target_positions to a numpy array for easier manipulation
+        passive_hand_positions = np.array(passive_hand_positions)
+
+        # Extract x and y coordinates
+        x_coords = passive_hand_positions[:, 0]
+        y_coords = passive_hand_positions[:, 1]
+
+        # Create a scatter plot
+        plt.figure(figsize=(5, 5))
+        plt.scatter(x_coords, y_coords, c='blue', marker='o', label='Passive Targets')
+
+        # Label axes
+        plt.xlabel('X Coordinate')
+        plt.ylabel('Y Coordinate')
+        plt.title('Passive Target Positions')
+        plt.legend()
+
+        # Save the plot
+        save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/passive_hand_positions_xy.png'
+        plt.savefig(save_path, dpi=900)
+        plt.show()
+        
+        # Keep track of elbow torque and angle
+        elbow_joint_id = self.plant.model.joint("elbow").id
+        elbow_angle_log = []
+        elbow_torque_log = []
+        passive_hand_positions_log = []
+        hand_position_log = []
+        
 
         rnn.init_state()
         self.plant.reset()
 
+        # Run it
         if render:
             self.plant.render()
 
@@ -274,49 +326,50 @@ class SequentialReachingEnv:
         self.plant.model.eq_active0 = 1
         #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-        force_data = {"position": [], "force": []}
-
         total_delay = 0
+        delay = 5
 
-        grid_positions = np.array(self.plant.grid_positions.copy())
-        grid_pos_idx = 0
-        self.plant.update_nail(grid_positions[grid_pos_idx])
 
-        # Update the target position
-        target_position = self.plant.sample_targets(1)
-        self.plant.update_target(target_position)
+        pos_idx = 0
+        self.plant.update_nail(passive_hand_positions[pos_idx])
 
-        while grid_pos_idx < len(grid_positions) - 1:
+        while pos_idx < len(passive_hand_positions) - 1:
             if render:
                 self.plant.render()
 
             context, feedback = self.plant.get_obs()
             obs = np.concatenate([context, feedback])
 
-            # Stimulate the specified units
-            if self.plant.data.time > total_delay - delay / 2:
-                rnn.h[units] = rnn.activation(np.inf)
+            # Store elbow data
+            elbow_torque_log.append(self.plant.data.qfrc_actuator[elbow_joint_id])  # Elbow torque as read out like this.
+            elbow_angle_log.append(np.pi - self.plant.data.qpos[elbow_joint_id])    # This adjustment is needed to give the intuitive absolute elbow angle (e.g. arm extended = 180 degrees).
+            
 
             # Update nail position !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if self.plant.data.time > total_delay:
-                grid_pos_idx += 1
-                self.plant.update_nail(grid_positions[grid_pos_idx])
+                pos_idx += 1
+                self.plant.update_nail(passive_hand_positions[pos_idx])
+                passive_hand_positions_log.append(passive_hand_positions[pos_idx])
                 total_delay += delay
             #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-            action = rnn.step(obs) * action_modifier
+            hand_position = self.plant.get_hand_pos()
+            hand_position_log.append(hand_position)
+
+            action = rnn.step(obs)
             self.plant.step(action)
-            force = self.plant.data.efc_force.copy()
-
-            if force.shape != (3,):
-                force = np.full(3, np.nan)
-
-            force_data["position"].append(grid_positions[grid_pos_idx])
-            force_data["force"].append(force)
 
         self.plant.close()
 
-        return force_data
+        self.num_passive_targets = num_passive_targets
+        self.delay = delay
+        self.passive_hand_positions = passive_hand_positions
+        self.elbow_torque_log = elbow_torque_log
+        self.elbow_angle_log = elbow_angle_log
+        self.hand_position_log = hand_position_log
+
+        return
+
 
     """
     .########.########.##.......########..##.....##....###....##....##
@@ -391,7 +444,6 @@ class SequentialReachingEnv:
 
         # Keep track of elbow torque
         elbow_joint_id = self.plant.model.joint("elbow").id
-        print(elbow_joint_id)
         elbow_angle_log = []
         elbow_torque_log = []
         elbow_torque_sensor_log = []
@@ -878,282 +930,159 @@ class SequentialReachingEnv:
 
 
 
+    def plot_passive(
+        self,
+        plot_pickle_path="/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_flexor_and_extensor.fig.pickle"
+        ): 
+
+        timesteps = np.arange(len(self.elbow_torque_log))
+        time_sec = timesteps * self.plant.model.opt.timestep
 
 
 
+        # Split logs based on weight_update_period
+        torque_segments = []
+        angle_segments = []
+        hand_position_segments = []
+        for i in range(self.num_passive_targets):
+            start_time = self.delay * i
+            end_time = self.delay * (i+1)
+            print('Start time:', start_time, 'End time:', end_time)
+            segment_indices = (time_sec >= start_time) & (time_sec < end_time)
+            torque_segments.append(np.array(self.elbow_torque_log)[segment_indices])
+            angle_segments.append(np.array(self.elbow_angle_log)[segment_indices])
+            hand_positions = np.stack(self.hand_position_log)  # ensures shape (N, 3)
+            hand_position_segments.append(hand_positions[segment_indices])
 
 
+        # Find the average torque and angle for the second half of each segment
+        avg_torque = [np.mean(segment[len(segment)//2:]) for segment in torque_segments]
+        avg_angle = [np.mean(segment[len(segment)//2:]) for segment in angle_segments]
+        avg_angle_degrees = [np.degrees(angle) for angle in avg_angle]
+        avg_hand_position = [np.mean(segment[len(segment)//2:], axis=0) for segment in hand_position_segments]
 
+        # # Scatter plot of average hand position
+        # avg_hand_position = np.array(avg_hand_position)
+        # plt.figure(figsize=(3, 3))
+        # plt.scatter(avg_hand_position[:, 0], avg_hand_position[:, 1], c='blue', marker='o', label='Average Hand Position')
+        # plt.xlabel("X")
+        # plt.ylabel("Y")
+        # plt.ylim([-0.8, 0])
+        # plt.xlim([0, 0.8])
+        # plt.title("Passive Movement of Hand")
+        # plt.legend(frameon=False)
+        # plt.grid(False)
 
-
-
-
-
-
-
-
-
-
-
-        #region OLD plots
-        # # Plot elbow torque sensor and angle
-        # if hasattr(self, "elbow_torque_sensor_log"):
-        #     fig, ax1 = plt.subplots(figsize=(10, 4))
-
-        #     # Plot torque on the primary y-axis
-        #     ax1.plot(time_sec, self.elbow_torque_sensor_log, color='blue', label='Torque')
-        #     ax1.set_xlabel("Timestep")
-        #     ax1.set_ylabel("Torque (Nm)", color='blue')
-        #     ax1.tick_params(axis='y', labelcolor='blue')
-        #     ax1.grid(True)
-
-        #     # Create secondary y-axis for angle
-        #     ax2 = ax1.twinx()
-        #     ax2.plot(time_sec, self.elbow_angle_log, color='black', label='Angle')
-        #     ax2.set_ylabel("Angle (rad)", color='black')
-        #     ax2.tick_params(axis='y', labelcolor='black')
-
-        #     plt.title("Elbow")
-        #     fig.tight_layout()
-        #     plt.savefig('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/elbow_torque.png', dpi=900)
-        #     plt.show()
-
-        #     # Split logs based on weight_update_period
-        #     torque_segments = []
-        #     angle_segments = []
-        #     for target_idx in range(self.num_targets):
-        #         for i in range(self.num_pulley_weights):
-        #             start_time = target_idx * self.num_pulley_weights * self.weight_update_period + i * self.weight_update_period
-        #             end_time = start_time + self.weight_update_period
-        #             segment_indices = (time_sec >= start_time) & (time_sec < end_time)
-        #             torque_segments.append(np.array(self.elbow_torque_sensor_log)[segment_indices])
-        #             angle_segments.append(np.array(self.elbow_angle_log)[segment_indices])
-
-        #     # Example: Print the number of segments
-        #     print(f"Number of torque segments: {len(torque_segments)}")
-        #     print(f"Number of angle segments: {len(angle_segments)}")
-        #     print(torque_segments)
-
-        #     # Find the average torque and angle for the second half of each segment
-        #     avg_torque = [np.mean(segment[len(segment)//2:]) for segment in torque_segments]
-        #     avg_angle = [np.mean(segment[len(segment)//2:]) for segment in angle_segments]
-        #     avg_angle_degrees = [np.degrees(angle) for angle in avg_angle]
-
-        #     print("Average Torque per Segment:", avg_torque)
-        #     print("Average Angle per Segment:", avg_angle)
-
-        #     # Scatter plot of avg_torque vs avg_angle
-        #     plt.figure(figsize=(6, 4))
-        #     num_segments_to_plot = len(torque_segments) / self.num_targets
-        #     plt.xlabel("Average Angle (degrees)")
-        #     colors = ['purple', 'green', 'red', 'blue', 'orange']  # Add more colors if needed
-        #     for target_idx in range(self.num_targets):
-        #         start_idx = target_idx * int(num_segments_to_plot)
-        #         end_idx = (target_idx + 1) * int(num_segments_to_plot)
-        #         odd_indices = list(range(start_idx + 1, end_idx, 2))
-        #         indices_to_plot = [start_idx] + odd_indices
-        #         plt.scatter([avg_angle_degrees[i] for i in indices_to_plot],
-        #                     [avg_torque[i] for i in indices_to_plot],
-        #                     color=colors[target_idx % len(colors)],
-        #                     label=f'Target {target_idx + 1}', alpha=0.7)
-        #     plt.ylabel("Average Torque (Nm)")
-        #     plt.title("Average Torque vs Average Angle")
-        #     plt.grid(False)
-        #     plt.legend()
-
-        #     print('angles')
-        #     print(avg_angle_degrees[:int(num_segments_to_plot)])
-        #     print(avg_angle_degrees[int(num_segments_to_plot):])
-
-        #     # Option to save the figure
-        #     save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_3.png'
-        #     plt.savefig(save_path, dpi=900)
-        #     print(f"Scatter plot saved to {save_path}")
-
-        #     plt.show()
-
-
-
-
-        # log = self.logger
-
-        # _, axes = plt.subplots(3, 2, figsize=(10, 10))
-
-        # # Targets
-        # target_onset_idcs = np.where(
-        #     np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
-        # )[0]
-        # target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
-        # target_onset_times = np.array(
-        #     [log["time"][target_onset_idx] for target_onset_idx in target_onset_idcs]
-        # )
-        # for t in target_onset_times:
-        #     axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-        #     axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-
-        # linewidth = 1
-
-        # # Length
-        # axes[0, 0].plot(log["time"], log["sensors"]["deltoid_len"], label="Deltoid")
-        # axes[0, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["latissimus_len"],
-        #     linewidth=linewidth,
-        #     label="Latissimus",
-        # )
-        # axes[0, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["biceps_len"],
-        #     linewidth=linewidth,
-        #     label="Biceps",
-        # )
-        # axes[0, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["triceps_len"],
-        #     linewidth=linewidth,
-        #     label="Triceps",
-        # )
-        # axes[0, 0].set_title("Length")
-
-        # # Velocity
-        # axes[0, 1].plot(
-        #     log["time"],
-        #     log["sensors"]["deltoid_vel"],
-        #     linewidth=linewidth,
-        #     label="Deltoid",
-        # )
-        # axes[0, 1].plot(
-        #     log["time"],
-        #     log["sensors"]["latissimus_vel"],
-        #     linewidth=linewidth,
-        #     label="Latissimus",
-        # )
-        # axes[0, 1].plot(
-        #     log["time"],
-        #     log["sensors"]["biceps_vel"],
-        #     linewidth=linewidth,
-        #     label="Biceps",
-        # )
-        # axes[0, 1].plot(
-        #     log["time"],
-        #     log["sensors"]["triceps_vel"],
-        #     linewidth=linewidth,
-        #     label="Triceps",
-        # )
-        # axes[0, 1].set_title("Velocity")
-        # axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
-
-        # # Force
-        # axes[1, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["deltoid_frc"],
-        #     linewidth=linewidth,
-        #     label="Deltoid",
-        # )
-        # axes[1, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["latissimus_frc"],
-        #     linewidth=linewidth,
-        #     label="Latissimus",
-        # )
-        # axes[1, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["biceps_frc"],
-        #     linewidth=linewidth,
-        #     label="Biceps",
-        # )
-        # axes[1, 0].plot(
-        #     log["time"],
-        #     log["sensors"]["triceps_frc"],
-        #     linewidth=linewidth,
-        #     label="Triceps",
-        # )
-        # axes[1, 0].set_title("Force")
-
-        # # Distance
-        # axes[1, 1].plot(
-        #     log["time"],
-        #     log["manhattan_distance"],
-        #     linewidth=linewidth,
-        #     label="Manhattan",
-        # )
-        # axes[1, 1].plot(
-        #     log["time"],
-        #     log["euclidean_distance"],
-        #     linewidth=linewidth,
-        #     label="Euclidean",
-        # )
-        # axes[1, 1].set_title("Distance")
-        # axes[1, 1].set_ylim([-0.05, 2.05])
-        # axes[1, 1].legend()
-
-        # # Energy
-        # axes[2, 0].plot(log["time"], log["entropy"], linewidth=0.1, label="Entropy")
-        # axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
-        # axes[2, 0].set_title("Energy")
-        # axes[2, 0].set_ylim([-0.05, 2.05])
-        # axes[2, 0].legend()
-
-        # # Fitness
-        # axes[2, 1].plot(log["time"], log["reward"], linewidth=linewidth, label="Reward")
-        # axes[2, 1].set_title("Loss")
-        # axes[2, 1].set_ylim([-2.05, 0.05])
-
-        # # Create a twin axis (right y-axis)
-        # r, g, b = np.array([1, 1, 1]) * 0.25
-        # fitness_clr = (r, g, b)
-        # ax_right = axes[2, 1].twinx()
-        # ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
-        # ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
-        # ax_right.tick_params(axis="y", labelcolor=fitness_clr)
-
-        # # Set axis labels
-        # for ax in axes.flat:
-        #     ax.set_xlabel("Time (s)")
-        #     ax.set_ylabel("Arb.")
-
-        # plt.tight_layout()
+        # # Save the scatter plot
+        # save_path = '/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_hand_position_scatter.png'
+        # plt.savefig(save_path, dpi=900)
         # plt.show()
 
-        # # Hand Velocity
-        # plt.figure(figsize=(10, 1))
-        # # Annotate target change times with vertical lines
-        # for idx in target_onset_idcs:
-        #     plt.axvline(
-        #         x=log["time"][idx],
-        #         color="blue",
-        #         linestyle="--",
-        #         linewidth=0.5,
-        #         label="Target Change" if idx == target_onset_idcs[0] else None,
-        #     )
-        # hand_positions = np.array(log["hand_position"])
-        # hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
-        # time = np.array(
-        #     log["time"][:-1]
-        # )  # Exclude the last time step to match velocity array length
-        # plt.plot(
-        #     time,
-        #     hand_velocities,
-        #     linewidth=linewidth,
-        #     label="Hand Velocity",
-        #     color="black",
-        # )
-        # plt.xlabel("Time (s)")
-        # plt.ylabel("Hand velocity (a.u.)")
-        # ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
-        # ax_right.plot(
-        #     log["time"][:-1],
-        #     log["euclidean_distance"][:-1],
-        #     linewidth=linewidth,
-        #     label="Euclidean Distance",
-        #     color="red",
-        # )
-        # ax_right.set_ylabel("Euclidean Distance", color="red")
-        # ax_right.tick_params(axis="y", labelcolor="red")
 
-        # self.logger = None
-        #endregion
+        # Big raw data plot
+        if hasattr(self, "elbow_torque_log"):
+            session_fig, (ax2, ax3, ax5) = plt.subplots(3, 1, figsize=(8, 5), sharex=True)
+
+            # Plot x and y hand (nailed) position over time on the second subplot
+            ax2.plot(time_sec, np.array(self.hand_position_log)[:, 0], label="X", color="red", linewidth=2)
+            ax2.plot(time_sec, np.array(self.hand_position_log)[:, 1], label="Y", color="blue", linewidth=2)
+            ax2.set_ylabel("Hand Position")
+            ax2.legend(loc="center right", frameon=False)  # Remove grey box
+            ax2.spines['top'].set_visible(False)
+            ax2.spines['right'].set_visible(False)
+            ax2.spines['bottom'].set_visible(False)
+            ax2.xaxis.set_ticks_position('none')
+            ax2.grid(False)
+
+            # Plot angle on the third subplot
+            smoothed_angle = np.convolve(np.degrees(self.elbow_angle_log), np.ones(50)/50, mode='same')  # Simple moving average
+            ax3.plot(time_sec, smoothed_angle, color='black', linewidth=2)
+            ax3.set_ylabel("Elbow Angle (°)", color='black')
+            ax3.tick_params(axis='y', labelcolor='black')
+            ax3.spines['top'].set_visible(False)
+            ax3.spines['right'].set_visible(False)
+            ax3.spines['bottom'].set_visible(False)
+            ax3.xaxis.set_ticks_position('none')
+            ax3.grid(False)
+
+            # # Plot bicep and tricep activation on the fourth subplot
+            # bicep_activation = np.array(self.action_log)[:, 2]
+            # tricep_activation = np.array(self.action_log)[:, 3]
+
+            # # Plot raw and smoothed bicep activation
+            # ax4.plot(time_sec, bicep_activation, color="purple", alpha=0.5, linewidth=0.5, label="Raw")
+            # smoothed_bicep = np.convolve(bicep_activation, np.ones(100)/100, mode='same')  # Larger smoothing window
+            # ax4.plot(time_sec, smoothed_bicep, color="purple", linewidth=2, label="Smoothed")
+
+            # # Plot raw and smoothed tricep activation
+            # ax4.plot(time_sec, tricep_activation, color="orange", alpha=0.5, linewidth=0.5, label="Tricep (Raw)")
+            # smoothed_tricep = np.convolve(tricep_activation, np.ones(100)/100, mode='same')  # Larger smoothing window
+            # ax4.plot(time_sec, smoothed_tricep, color="orange", linewidth=2, label="Tricep (Smoothed)")
+
+            # ax4.set_ylabel("Bicep Activation")
+            # ax4.legend(loc="upper right", frameon=False)  # Remove grey box
+            # ax4.spines['top'].set_visible(False)
+            # ax4.spines['right'].set_visible(False)
+            # ax4.spines['bottom'].set_visible(False)
+            # ax4.xaxis.set_ticks_position('none')
+            # ax4.grid(False)
+
+            # Plot torque on the fifth subplot
+            ax5.plot(time_sec, self.elbow_torque_log, color='blue', alpha=0.5, linewidth=0.5, label='Raw')
+            smoothed_torque = np.convolve(self.elbow_torque_log, np.ones(100)/100, mode='same')  # Larger smoothing window
+            ax5.plot(time_sec, smoothed_torque, color='blue', linewidth=2, label='Smoothed')
+            ax5.set_xlabel("Time (s)")
+            ax5.set_ylabel("Elbow Torque (Nm)", color='blue')
+            ax5.tick_params(axis='y', labelcolor='blue')
+            ax5.legend(loc="center right", frameon=False)  # Remove grey box
+            ax5.spines['top'].set_visible(False)
+            ax5.spines['right'].set_visible(False)
+            ax5.grid(False)
+
+            session_fig.tight_layout()
+            plt.savefig('/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/elbow_torque_angle_passive.png', dpi=900)
+            plt.show()
+
+
+
+
+        # Open and update Asatryan and Feldman-style figure
+        with open(plot_pickle_path, 'rb') as f:
+                fig = pickle.load(f)
+        plt.figure(fig.number)
+
+        # Add the passive movement points to the existing plot.
+        # Join points with straight lines in sorted order
+        plt.plot(sorted_angles, sorted_torques, color='black', linewidth=2, alpha=1, zorder=2)
+
+        
+
+
+
+
+
+
+
+
+
+
+        # self.elbow_torque_log
+        # self.elbow_angle_log
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

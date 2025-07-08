@@ -34,6 +34,9 @@ from sklearn.decomposition import PCA
 """
 # reacher = SequentialReacher(plant_xml_file="arm_with_pulley_extensor.xml")
 reacher = SequentialReacher(plant_xml_file="arm_with_pulley.xml")
+# # Ensure the XML file contains a geometry named "weight" or use an existing geometry name
+# reacher = SequentialReacher(plant_xml_file="arm_just_arm.xml")  # Update XML if needed
+
 rnn = RNN(
     input_size=3 + reacher.num_sensors,
     hidden_size=25,
@@ -88,7 +91,24 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.title("Input Weights")
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
-env.feldman(
+
+
+
+# env.feldman(
+#     best_rnn,
+#     weight_mod=0.5,
+#     weight_density=100,
+#     seed=0,
+#     render=False,
+#     log=True,
+# )
+# print("Simulation complete")
+# env.plot()
+# print("Plotting complete")
+
+
+
+env.passive(
     best_rnn,
     weight_mod=0.5,
     weight_density=100,
@@ -96,11 +116,7 @@ env.feldman(
     render=False,
     log=True,
 )
-print("Simulation complete")
-env.plot()
-print("Plotting complete")
 
-# with open('/Users/joseph/My Drive/Champalimaud/rotations/Joe/data/env_with_self.pkl', 'wb') as f:
-#     pickle.dump(env, f)  # <-- `env` is the object (same as `self` inside)
+env.plot_passive()
 
 # %%
