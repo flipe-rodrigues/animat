@@ -20,13 +20,24 @@
   </default>
 
   <worldbody>
+
     <!-- LIGHTS -->
     <light name="spotlight" mode="targetbodycom" target="hand" diffuse=".5 .5 .5"
       specular="0.3 0.3 0.3" pos="0 -6 4" cutoff="30" />
     <light name="top" pos="0 0 2" mode="trackcom" />
 
     <!-- FLOOR-->
-    <geom name="floor" type="plane" pos="0 0 -.1" size="0 0 .01" material="grid" condim="3" />
+    <geom name="floor" type="plane" pos="0 0 -2" size="0 0 .01" material="grid" condim="3" />
+
+    <!-- weight -->
+    <body name="weight" pos="-0.5 -1.5 -1">
+      <joint axis="0 0 1" pos="0 0 .025" type="slide" />
+      <geom name="weight" type="cylinder" size=".03 .025" mass="1" rgba=".2 .2 .5 1" />
+      <!-- <site name="s1" pos="0 0 .025" /> -->
+    </body>
+
+    <!-- pulley site -->
+    <!-- <site name="pulley" pos="-0.5 -1.5 0" /> -->
 
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
@@ -39,7 +50,7 @@
       <body name="upper_arm" pos="0 0 0">
 
         <!-- shoulder -->
-        <joint name="shoulder" type="hinge" axis="0 0 1" range="-60 60" />
+        <joint name="shoulder" type="hinge" axis="0 0 1" range="-1e-3 1e-3" />
 
         <!-- tendon attachment sites -->
         <site name="deltoid2" pos="0.025 -.1 0" size="0.01" />
@@ -54,7 +65,8 @@
         <body name="lower_arm" pos="0 -0.4 0">
 
           <!-- elbow -->
-          <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" />
+          <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" ref="90"/>
+          <site name="elbow_site" pos="0 0 0" size="0.01" />
 
           <!-- tendon attachment sites -->
           <site name="biceps2" pos=".1 .03 0" size="0.01" />
@@ -67,6 +79,7 @@
           <body name="hand" pos="0.5 0 0">
             <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" />
             <site name="nail2" pos="0 0 0" />
+            <!-- <site name="s3" pos="0 0 0" /> -->
           </body>
         </body>
       </body>
@@ -83,13 +96,6 @@
       <geom name="nail" type="cylinder" size=".005" fromto="0 0 -.1 0 0 .1" contype="0"
         conaffinity="0" rgba="1 1 1 1" />
       <site name="nail1" pos="0 0 0" />
-    </body>
-
-    <!-- DUMBELL-->
-    <body name="dumbell" pos="0 0 0">
-      <geom name="dumbell" type="cylinder" size=".025" fromto="0 0 -.1 0 0 .1" contype="0"
-        conaffinity="0" rgba="1 1 1 1" />
-      <site name="dumbell_site" pos="0 0 0" />
     </body>
   </worldbody>
 
@@ -119,6 +125,15 @@
       <geom geom="radius" />
       <site site="triceps2" />
     </spatial>
+
+    <!-- Tendon with Pulleys -->
+    <!-- <spatial range="0 2" limited="true" width=".002" rgba=".95 .3 .3 1">
+      <site site="s1" />
+      <site site="pulley" />
+      <geom geom="hand" />
+      <site site="s3" />
+    </spatial> -->
+
   </tendon>
 
   <actuator>
@@ -142,6 +157,10 @@
     <actuatorfrc name="latissimus_force" actuator="latissimus" />
     <actuatorfrc name="biceps_force" actuator="biceps" />
     <actuatorfrc name="triceps_force" actuator="triceps" />
+
+    <!-- <torque name="elbow_torque" site="elbow_site" /> -->
+    <torque name="elbow_torque" site="elbow_site" />
+
   </sensor>
 
 </mujoco>

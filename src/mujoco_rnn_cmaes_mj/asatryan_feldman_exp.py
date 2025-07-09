@@ -3,16 +3,14 @@
 .####.##.....##.########...#######..########..########..######.
 ..##..###...###.##.....##.##.....##.##.....##....##....##....##
 ..##..####.####.##.....##.##.....##.##.....##....##....##......
-..##..##.###.##.########..##.....##.
-########.....##.....######.
+..##..##.###.##.########..##.....##.########.....##.....######.
 ..##..##.....##.##........##.....##.##...##......##..........##
 ..##..##.....##.##........##.....##.##....##.....##....##....##
-.####.##.....##.##.........
-#######..##.....##....##.....######.
+.####.##.....##.##.........#######..##.....##....##.....######.
 """
 
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use("Agg")
 import pickle
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
@@ -34,8 +32,11 @@ from sklearn.decomposition import PCA
 .##.......##.....##.##.....##.##.....##
 .########..#######..##.....##.########.
 """
-# xml_file = "arm_with_pulley_flexor.xml"
+# Set the XML file for the SequentialReacher
+xml_file = "arm_with_pulley_flexor.xml"
 xml_file = "arm_with_pulley_extensor.xml"
+xml_file = "arm_no_pulley.xml"
+
 reacher = SequentialReacher(plant_xml_file=xml_file)
 # # Ensure the XML file contains a geometry named "weight" or use an existing geometry name
 # reacher = SequentialReacher(plant_xml_file="arm_just_arm.xml")  # Update XML if needed
@@ -105,19 +106,25 @@ env.feldman(
 )
 print("Simulation complete")
 save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
-save_path = "C:\\Users\\User\\Desktop\\tests"
+# save_path = "C:\\Users\\User\\Desktop\\tests"
 env.plot(save_path=save_path)
 print("Plotting complete")
 
-# env.passive(
-#     best_rnn,
-#     weight_mod=0.5,
-#     weight_density=100,
-#     seed=0,
-#     render=False,
-#     log=True,
-# )
+# %%
+env.passive(
+    best_rnn,
+    weight_mod=0.5,
+    weight_density=100,
+    seed=0,
+    render=False,
+    log=True,
+)
 
-# env.plot_passive()
+save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
+# save_path = "C:\\Users\\User\\Desktop\\tests"
+pickle_path = os.path.join(
+    save_path, "avg_torque_vs_avg_angle_with_flexor_and_extensor.fig.pickle"
+)
+env.plot_passive(save_path=save_path, pickle_path=pickle_path)
 
 # %%
