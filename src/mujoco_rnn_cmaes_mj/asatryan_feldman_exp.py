@@ -8,7 +8,6 @@
 ..##..##.....##.##........##.....##.##....##.....##....##....##
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
-
 import matplotlib
 matplotlib.use("Agg")
 import pickle
@@ -67,7 +66,7 @@ env = SequentialReachingEnv(
     },
 )
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
-# models_dir = "../../models"
+models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
@@ -117,15 +116,13 @@ env.passive(
     weight_mod=0.5,
     weight_density=100,
     seed=0,
-    render=False,
+    render=True,
     log=True,
 )
 
 save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
-# save_path = "C:\\Users\\User\\Desktop\\tests"
+save_path = "C:\\Users\\User\\Desktop\\tests"
 pickle_path = os.path.join(
     save_path, "avg_torque_vs_avg_angle_with_flexor_and_extensor.fig.pickle"
 )
 env.plot_passive(save_path=save_path, pickle_path=pickle_path)
-
-# # %%

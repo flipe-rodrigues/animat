@@ -286,6 +286,10 @@ class SequentialReachingEnv:
             coordinates = [x, y, z]
             passive_hand_positions.append(coordinates)
 
+        offset = 90
+        min_angle = -60 + offset
+        max_angle = 60 + offset
+        passive_target_angles = np.linspace(min_angle, max_angle, num_passive_targets)
         print("Passive target positions:", passive_hand_positions)
 
         # Plot and save the passive target positions (x and y only)
@@ -333,14 +337,14 @@ class SequentialReachingEnv:
 
         # Turn on the "nail"
         #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        self.plant.model.eq_active0 = 1
+        self.plant.model.eq_active0 = 0
         #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         total_delay = 0
         delay = 5
 
         pos_idx = 0
-        self.plant.update_nail(passive_hand_positions[pos_idx])
+        # self.plant.update_nail(passive_hand_positions[pos_idx])
 
         while pos_idx < len(passive_hand_positions) - 1:
             if render:
@@ -360,10 +364,11 @@ class SequentialReachingEnv:
             # Update nail position !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             if self.plant.data.time > total_delay:
                 pos_idx += 1
-                self.plant.update_nail(passive_hand_positions[pos_idx])
+                # self.plant.update_nail(passive_hand_positions[pos_idx])
                 passive_hand_positions_log.append(passive_hand_positions[pos_idx])
                 total_delay += delay
             #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            self.plant.data.qpos[elbow_joint_id] = np.deg2rad(passive_target_angles[pos_idx])
 
             hand_position = self.plant.get_hand_pos()
             hand_position_log.append(hand_position)
