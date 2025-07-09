@@ -18,6 +18,7 @@ from plants import SequentialReacher
 from environments import SequentialReachingEnv
 from networks import RNN
 from utils import *
+
 import numpy as np
 import seaborn as sns
 from sklearn.decomposition import PCA
@@ -65,8 +66,8 @@ env = SequentialReachingEnv(
         "lasso": 0,
     },
 )
-# models_dir = "../../models"
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
+# models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 

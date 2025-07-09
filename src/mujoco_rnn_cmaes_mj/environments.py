@@ -368,9 +368,9 @@ class SequentialReachingEnv:
             hand_position = self.plant.get_hand_pos()
             hand_position_log.append(hand_position)
 
-
             # !!!!!!!!!!!!
             action = rnn.step(obs)
+            action *= 0 # No action taken, just passively move the arm.
             self.plant.step(action)
 
         self.plant.close()
@@ -1049,7 +1049,6 @@ class SequentialReachingEnv:
         flexor_extensor_passive_pickle_file = os.path.join(
             save_path, f"{flexor_extensor_passive_file_name}.fig.pickle"
         )
-
 
         timesteps = np.arange(len(self.elbow_torque_log))
         time_sec = timesteps * self.plant.model.opt.timestep
