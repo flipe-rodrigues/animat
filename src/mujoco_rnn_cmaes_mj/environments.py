@@ -323,6 +323,7 @@ class SequentialReachingEnv:
         passive_hand_positions_log = []
         hand_position_log = []
 
+        # !!!!!!!!!!!!!!!!!!!   
         rnn.init_state()
         self.plant.reset()
 
@@ -367,6 +368,8 @@ class SequentialReachingEnv:
             hand_position = self.plant.get_hand_pos()
             hand_position_log.append(hand_position)
 
+
+            # !!!!!!!!!!!!
             action = rnn.step(obs)
             self.plant.step(action)
 
@@ -589,7 +592,7 @@ class SequentialReachingEnv:
     """
 
     # Set default font to Helvetica
-    # mpl.rcParams['font.family'] = 'Helvetica'
+    mpl.rcParams['font.family'] = 'Helvetica'
 
     def plot(self, save_path):
         #
@@ -883,7 +886,7 @@ class SequentialReachingEnv:
                     )
 
                 # Add a horizontal line at y = 0
-                plt.axhline(y=0, color="black", linestyle="--", linewidth=0.8)
+                plt.axhline(y=0, color="black", linewidth=0.8)
 
                 plt.ylabel("Average Elbow Torque (Nm)")
                 plt.title("Bicep and Tricep Unloading Responses")
@@ -1015,6 +1018,8 @@ class SequentialReachingEnv:
 
                 plt.show()
 
+
+
     """
     .########..##........#######..########....########.....###.....######...######..####.##.....##.########
     .##.....##.##.......##.....##....##.......##.....##...##.##...##....##.##....##..##..##.....##.##......
@@ -1030,6 +1035,21 @@ class SequentialReachingEnv:
         save_path="/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures",
         pickle_path="/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/avg_torque_vs_avg_angle_with_flexor_and_extensor.fig.pickle",
     ):
+
+        # Save settings
+        flexor_extensor_file_name = (
+                "avg_torque_vs_avg_angle_with_flexor_and_extensor"
+        )
+        flexor_extensor_pickle_file = os.path.join(
+            save_path, f"{flexor_extensor_file_name}.fig.pickle"
+        )
+        flexor_extensor_passive_file_name = (
+            "avg_torque_vs_avg_angle_with_flexor_and_extensor_passive"
+        )
+        flexor_extensor_passive_pickle_file = os.path.join(
+            save_path, f"{flexor_extensor_passive_file_name}.fig.pickle"
+        )
+
 
         timesteps = np.arange(len(self.elbow_torque_log))
         time_sec = timesteps * self.plant.model.opt.timestep
@@ -1177,15 +1197,38 @@ class SequentialReachingEnv:
             plt.show()
 
         # Open and update Asatryan and Feldman-style figure
-        with open(pickle_path, "rb") as f:
+        with open(flexor_extensor_pickle_file, "rb") as f:
             fig = pickle.load(f)
         plt.figure(fig.number)
 
         # Add the passive movement points to the existing plot.
         # Join points with straight lines in sorted order
         plt.plot(
-            sorted_angles, sorted_torques, color="black", linewidth=2, alpha=1, zorder=2
+            avg_angle_degrees,
+            avg_torque,
+            color="black",
+            linewidth=2,
+            linestyle="--",
+            alpha=1,
+            zorder=2,
         )
+
+        plt.scatter(
+            avg_angle_degrees,
+            avg_torque,
+            alpha=1,
+            zorder=2,
+        )
+
+        # Save the figure to a pickle file
+        with open(flexor_extensor_passive_pickle_file, "wb") as f:
+            pickle.dump(fig, f)
+        print(f"Figure saved to {flexor_extensor_passive_pickle_file}")
+
+        # Option to save the figure
+        png_file = os.path.join(save_path, f"{flexor_extensor_passive_file_name}.png")
+        plt.savefig(png_file, dpi=900)
+        print(f"Figure saved to {png_file}")
 
         # self.elbow_torque_log
         # self.elbow_angle_log

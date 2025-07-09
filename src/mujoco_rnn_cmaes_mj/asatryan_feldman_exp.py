@@ -33,8 +33,8 @@ from sklearn.decomposition import PCA
 .########..#######..##.....##.########.
 """
 # Set the XML file for the SequentialReacher
-xml_file = "arm_with_pulley_flexor.xml"
-xml_file = "arm_with_pulley_extensor.xml"
+# xml_file = "arm_with_pulley_flexor.xml"
+# xml_file = "arm_with_pulley_extensor.xml"
 xml_file = "arm_no_pulley.xml"
 
 reacher = SequentialReacher(plant_xml_file=xml_file)
@@ -65,8 +65,8 @@ env = SequentialReachingEnv(
         "lasso": 0,
     },
 )
+# models_dir = "../../models"
 models_dir = "/Users/joseph/Documents/GitHub/animat/models"
-models_dir = "../../models"
 gen_idx = 9000  # Specify the generation index you want to load
 model_file = f"optimizer_gen_{gen_idx}_cmaesv2.pkl"
 
@@ -96,19 +96,19 @@ best_rnn.W_in[:, [1, 2]] = best_rnn.W_in[:, [2, 1]]
 # plt.xlabel("Input Features")
 # plt.ylabel("Hidden Units")
 
-env.feldman(
-    best_rnn,
-    weight_mod=0.5,
-    weight_density=100,
-    seed=0,
-    render=False,
-    log=True,
-)
-print("Simulation complete")
-save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
-# save_path = "C:\\Users\\User\\Desktop\\tests"
-env.plot(save_path=save_path)
-print("Plotting complete")
+# env.feldman(
+#     best_rnn,
+#     weight_mod=0.5,
+#     weight_density=100,
+#     seed=0,
+#     render=False,
+#     log=True,
+# )
+# print("Simulation complete")
+# save_path = "/Users/joseph/My Drive/Champalimaud/rotations/Joe/figures/"
+# # save_path = "C:\\Users\\User\\Desktop\\tests"
+# env.plot(save_path=save_path)
+# print("Plotting complete")
 
 # %%
 env.passive(
@@ -127,4 +127,4 @@ pickle_path = os.path.join(
 )
 env.plot_passive(save_path=save_path, pickle_path=pickle_path)
 
-# %%
+# # %%
