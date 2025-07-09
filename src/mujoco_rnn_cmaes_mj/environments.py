@@ -1202,15 +1202,15 @@ class SequentialReachingEnv:
 
         # Add the passive movement points to the existing plot.
         # Join points with straight lines in sorted order
-        plt.plot(
-            avg_angle_degrees,
-            avg_torque,
-            color="black",
-            linewidth=2,
-            linestyle="--",
-            alpha=1,
-            zorder=2,
-        )
+        # plt.plot(
+        #     avg_angle_degrees,
+        #     avg_torque,
+        #     color="black",
+        #     linewidth=2,
+        #     linestyle="--",
+        #     alpha=1,
+        #     zorder=2,
+        # )
 
         plt.scatter(
             avg_angle_degrees,
@@ -1229,5 +1229,13 @@ class SequentialReachingEnv:
         plt.savefig(png_file, dpi=900)
         print(f"Figure saved to {png_file}")
 
-        # self.elbow_torque_log
-        # self.elbow_angle_log
+
+
+        # Plot a new figure of avg_angle_degrees vs avg_torque
+        plt.figure(figsize=(5, 5))
+        plt.plot(avg_angle_degrees, avg_torque, color="black", linewidth=2, alpha=1)
+
+        # Option to save the figure
+        png_file = os.path.join(save_path,"passive_movement.png")
+        plt.savefig(png_file, dpi=900)
+        print(f"Figure saved to {png_file}")
