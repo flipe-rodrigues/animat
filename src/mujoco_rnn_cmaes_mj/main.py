@@ -28,7 +28,7 @@ import numpy as np
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
-    reacher = SequentialReacher(plant_xml_file="arm_model.xml")
+    reacher = SequentialReacher(plant_xml_file="arm.xml")
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
         hidden_size=25,
