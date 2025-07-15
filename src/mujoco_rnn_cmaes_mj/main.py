@@ -28,7 +28,11 @@ import numpy as np
 .##.....##.##.....##.####.##....##
 """
 if __name__ == "__main__":
+
+    # Initialize the plant
     reacher = SequentialReacher(plant_xml_file="arm.xml")
+
+    # Specify policy
     rnn = RNN(
         input_size=3 + reacher.num_sensors,
         hidden_size=25,
@@ -36,6 +40,8 @@ if __name__ == "__main__":
         activation=tanh,
         alpha=reacher.model.opt.timestep / 10e-3,
     )
+
+    # Initialize the environment/task
     env = SequentialReachingEnv(
         plant=reacher,
         target_duration={"mean": 3, "min": 1, "max": 6},
@@ -48,8 +54,9 @@ if __name__ == "__main__":
             "lasso": 0,
         },
     )
-    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
 
+    # Optimization setup
+    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
     num_generations = 10000
     fitnesses = []
     for gg in range(num_generations):
