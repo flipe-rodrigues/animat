@@ -133,6 +133,8 @@ class SequentialReachingEnv:
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
 
+        hand_position = self.plant.get_hand_pos()
+
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
@@ -142,6 +144,7 @@ class SequentialReachingEnv:
             action = rnn.step(obs)
             self.plant.step(action)
 
+            previous_hand_position = hand_position
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
             manhattan_distance = l1_norm(target_position - hand_position)
@@ -149,13 +152,22 @@ class SequentialReachingEnv:
             energy = np.mean(action)
             entropy = action_entropy(action)
 
-            reward = -(
-                euclidean_distance * self.loss_weights["euclidean"]
-                + manhattan_distance * self.loss_weights["manhattan"]
-                + energy * entropy * self.loss_weights["energy"]
-                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
-                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
-            )
+            # Calculate reward as the product of mass, velocity, and distance
+            dt = self.plant.model.opt.timestep
+            m = self.plant.model.body_mass[self.plant.hand_id]
+            v = l2_norm(hand_position - previous_hand_position) / dt
+            s = l2_norm(target_position - hand_position)
+            action = m * v * s
+            reward = -action
+
+            # reward = -(
+            #     euclidean_distance * self.loss_weights["euclidean"]
+            #     + manhattan_distance * self.loss_weights["manhattan"]
+            #     + energy * entropy * self.loss_weights["energy"]
+            #     + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
+            #     + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
+            # )
+
             total_reward += reward
 
             if log:

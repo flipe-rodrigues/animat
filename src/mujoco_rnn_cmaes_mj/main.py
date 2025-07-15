@@ -30,7 +30,7 @@ import numpy as np
 if __name__ == "__main__":
 
     # Initialize the plant
-    reacher = SequentialReacher(plant_xml_file="arm.xml")
+    reacher = SequentialReacher(plant_xml_file="arm_model.xml")
 
     # Specify policy
     rnn = RNN(
