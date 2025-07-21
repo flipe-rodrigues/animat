@@ -96,10 +96,10 @@ class RNNAdapter:
         # Load model state dict
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model_state_dict = checkpoint['model_state_dict']
-            print(f"📦 Loading from model_state_dict")
+            print(f"Loading from model_state_dict")
         else:
             model_state_dict = checkpoint
-            print(f"📦 Loading from direct checkpoint")
+            print(f"Loading from direct checkpoint")
         
         try:
             self.policy.load_state_dict(model_state_dict)
@@ -182,7 +182,7 @@ class RNNAdapter:
             # Encode
             encoded_obs = self.encoder(obs_tensor)
             
-            # encoded must be 29 total dims (NOT 93!)
+            
             assert encoded_obs.shape[-1] == 29, f"encoded→{encoded_obs.shape}, expected 29"
             
             # Apply SelectiveVecNormalize (only first 12 dimensions)
