@@ -7,14 +7,19 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from wrappers.sb3_wrapper import create_env, create_training_env, create_eval_env, set_seeds
+from workspace.wrappers.rl_wrapper import create_training_env, create_eval_env, set_seeds, create_env  
 from wrappers.success_tracking import SimpleMetricsCallback
 
-def train_arm():
+def train_arm(encoder=None, save_dir="./models", **kwargs):
     """Train an agent using the wrapped environment."""
+    
+    if encoder is None:
+        from encoders.encoders import IdentityEncoder
+        encoder = IdentityEncoder(obs_dim=15)
+    
     # Use about 75% of available cores for environment processes
     num_cpu = max(1, int(0.75 * multiprocessing.cpu_count()))
-    venv = create_training_env(num_envs=num_cpu)
+    venv = create_training_env(num_envs=num_cpu, encoder=encoder)
     
     print(f"Number of CPU cores used: {num_cpu}")
 

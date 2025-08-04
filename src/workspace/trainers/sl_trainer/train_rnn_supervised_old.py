@@ -8,9 +8,15 @@ import os
 import shutil
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
 
-from policy import NumpyStyleRNNPolicy  # Change this import
-from dataset import DemonstrationDataset
+workspace_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(workspace_root))
+
+from wrappers.sl_wrappers.dataset import DemonstrationDataset
+from networks.rnn import RNNPolicy  # Change this import
+
 
 def clamp_spectral_radius_fn(weight_hh, rho_target=0.9):  # Renamed function
     """Clamp spectral radius to target value."""
@@ -188,7 +194,7 @@ def train_supervised_rnn(demonstrations_path="sac_demonstrations_50steps_success
     
     # Create model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    policy = NumpyStyleRNNPolicy(  # Changed from LeakyRNNPolicy
+    policy = RNNPolicy(  # Changed from LeakyRNNPolicy
         obs_dim=obs_dim,
         action_dim=action_dim,
         hidden_size=hidden_size,
@@ -279,7 +285,7 @@ def train_supervised_rnn(demonstrations_path="sac_demonstrations_50steps_success
                     'normalization_type': 'SelectiveVecNormalize_first_12_dims',
                     'training_data': demonstrations_path,
                     'spectral_radius_clamping': clamp_spectral_radius,  # NEW: Save clamping info
-                    'rho_target': rho_target if clamp_spectral_radius else None  # NEW: Save target
+                    'rho_target': rho_target if clamp_spectral_radius else None  # NEW: Save target spectral radius
                 }
             }, os.path.join(save_dir, model_name))
             print(f"   💾 New best model saved! Loss: {avg_loss:.6f}")
@@ -371,18 +377,18 @@ def train_supervised_rnn(demonstrations_path="sac_demonstrations_50steps_success
 
 
 if __name__ == "__main__":
-    # Train with spectral radius clamping
+    # Update paths to match your actual files
     train_supervised_rnn(
-        demonstrations_path="sac_demonstrations_50steps_successful_selective5.pkl",  # Updated filename
-        save_dir="./rnn_test_64hidden_spectral_clamped4",  # Updated save dir to indicate clamping
-        selective_norm_path="selective_vec_normalize3.pkl",  # Updated to match collection script
+        demonstrations_path="sac_demonstrations_50steps_successful_selective5.pkl",  # ✅ This matches your file
+        save_dir="./models/rnn_test_64hidden_spectral_clamped4",
+        selective_norm_path="models/selective_vec_normalize3.pkl",  # Add models/ prefix
         num_epochs=400,
         batch_size=16,
-        sequence_length=50,  # Match the 50-step episodes
+        sequence_length=50,
         learning_rate=1e-3,
         recurrent_lr_factor=0.1,
         hidden_size=64,
         tau_mem=1.0,
-        clamp_spectral_radius=True,  # NEW: Enable spectral radius clamping
-        rho_target=0.95  # NEW: Target spectral radius (adjust as needed)
+        clamp_spectral_radius=True,
+        rho_target=0.95
     )

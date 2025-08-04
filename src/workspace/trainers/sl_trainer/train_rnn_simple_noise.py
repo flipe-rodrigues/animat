@@ -9,7 +9,7 @@ import shutil
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from policy import NumpyStyleRNNPolicy
+from networks.rnn import RNNPolicy
 from dataset import DemonstrationDataset
 
 def train_with_noise_injection(policy, dataloader, optimizer, criterion, max_grad_norm=1.0, 
@@ -124,7 +124,7 @@ def train_simple_robust_rnn(demonstrations_path="sac_demonstrations_50steps_succ
     
     # Create model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    policy = NumpyStyleRNNPolicy(
+    policy = RNNPolicy(
         obs_dim=obs_dim,
         action_dim=action_dim,
         hidden_size=hidden_size,

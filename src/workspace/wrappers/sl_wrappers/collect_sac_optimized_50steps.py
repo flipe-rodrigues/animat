@@ -1,10 +1,18 @@
 import torch
 import numpy as np
 import pickle
+import sys
+from pathlib import Path
+
+# Add workspace to path
+workspace_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(workspace_root))
+
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import VecNormalize, DummyVecEnv
-from environment import make_arm_env
-from shimmy_wrapper import set_seeds, create_env, SelectiveVecNormalize
+from envs.dm_env import make_arm_env
+from wrappers.rl_wrapper import set_seeds, create_env
+from workspace.wrappers.sl_wrappers.normalization import SelectiveVecNormalize
 from tqdm import tqdm
 
 def collect_optimized_demonstrations_50steps_then_convert(model_path="./best_model/best_model.zip", 
@@ -212,7 +220,8 @@ def quick_data_check(save_path="sac_demonstrations_50steps_successful_selective.
     with open(save_path, 'rb') as f:
         data = pickle.load(f)
     
-    sac_model = SAC.load("arm_final2.zip")
+    # Fix the path to include models/ directory
+    sac_model = SAC.load("models/arm_final2.zip")
     print(f"SAC was trained on action space: {sac_model.action_space}")
 
     print(f"\n🔍 DATA CHECK: {save_path}")
@@ -251,9 +260,9 @@ def quick_data_check(save_path="sac_demonstrations_50steps_successful_selective.
 if __name__ == "__main__":
     # Collect demonstrations with original normalization, then convert
     demonstrations = collect_optimized_demonstrations_50steps_then_convert(
-        model_path="arm_final2.zip",
-        vecnorm_path="vec_normalize2.pkl",  # Original normalization for SAC
-        selective_norm_path="selective_vec_normalize3.pkl",  # Target normalization
+        model_path="models/arm_final2.zip",
+        vecnorm_path="models/vec_normalize2.pkl",  # Original normalization for SAC
+        selective_norm_path="models/selective_vec_normalize3.pkl",  # Target normalization
         num_episodes=10000,  # Increase to collect 3000 successful episodes
         target_episode_length=50,
         success_threshold=0.04,

@@ -2,27 +2,22 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-class NumpyStyleRNNPolicy(nn.Module):
-    """
-    Exactly the same update as the NumPy RNN:
+class RNNPolicy(nn.Module):
+    """Leaky RNN with separate output dynamics:
       h ← (1−α)·h + α·activation(W_in·x + W_h·h + b_h)
       o ← (1−α)·o + α·sigmoid(W_out·h + b_out)
     """
-    def __init__(self,
-                 obs_dim,
-                 action_dim,
-                 hidden_size,
-                 activation: nn.Module = nn.Sigmoid(),
-                 alpha: float = 0.1):
+    def __init__(self, input_dim: int, action_dim: int, hidden_size: int, 
+                 activation: nn.Module = nn.Sigmoid(), alpha: float = 0.1, **kwargs):
         super().__init__()
-        self.obs_dim = obs_dim
+        self._input_dim = input_dim  
         self.hidden_size = hidden_size
-        self.action_dim = action_dim
+        self._action_dim = action_dim  
         self.activation = activation
         self.alpha = alpha
 
-        # exactly W_in, W_h, W_out + biases
-        self.W_in = nn.Parameter(torch.empty(hidden_size, obs_dim))
+        # Weight parameters
+        self.W_in = nn.Parameter(torch.empty(hidden_size, input_dim))
         self.W_h  = nn.Parameter(torch.empty(hidden_size, hidden_size))
         self.b_h  = nn.Parameter(torch.zeros(hidden_size))
         self.W_out= nn.Parameter(torch.empty(action_dim, hidden_size))
@@ -87,3 +82,32 @@ class NumpyStyleRNNPolicy(nn.Module):
         # Return BOTH h and o as the new hidden state
         new_hidden = (h.unsqueeze(0), o.unsqueeze(0))
         return out, new_hidden
+    
+    @property
+    def input_dim(self) -> int:
+        return self._input_dim
+    
+    @property
+    def output_dim(self) -> int:
+        return self._action_dim
+    
+    @property
+    def action_dim(self) -> int:  # Backward compatibility
+        return self._action_dim
+    
+    @property
+    def obs_dim(self) -> int:  # Backward compatibility  
+        return self._input_dim
+    
+    def predict(self, observation: np.ndarray, hidden_state=None) -> tuple:
+        """Predict action (numpy interface)."""
+        with torch.no_grad():
+            if isinstance(observation, np.ndarray):
+                obs_tensor = torch.FloatTensor(observation).unsqueeze(0)
+            else:
+                obs_tensor = observation.unsqueeze(0)
+            
+            action_tensor, new_hidden = self.forward(obs_tensor, hidden_state)
+            action = action_tensor.squeeze(0).numpy()
+            
+            return action, new_hidden
