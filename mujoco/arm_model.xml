@@ -46,7 +46,7 @@
       <body name="upper_arm" pos="0 0 0">
 
         <!-- shoulder -->
-        <joint name="shoulder" type="hinge" axis="0 0 1"/>
+        <joint name="shoulder" type="hinge" axis="0 0 1" range="-60 60" />
 
         <!-- tendon attachment sites -->
         <site name="deltoid2" pos="0.025 -.1 0" size="0.01" />
@@ -61,7 +61,7 @@
         <body name="lower_arm" pos="0 -0.4 0">
 
           <!-- elbow -->
-          <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" ref="90"/>
+          <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" ref="90" />
           <site name="elbow_site" pos="0 0 0" size="0.01" />
 
           <!-- tendon attachment sites -->
