@@ -3,6 +3,12 @@
 import torch
 import numpy as np
 import time
+import sys
+from pathlib import Path
+
+workspace_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(workspace_root))
+
 from itertools import product
 
 from encoders.encoders import IdentityEncoder, ModalitySpecificEncoder, GridEncoder
