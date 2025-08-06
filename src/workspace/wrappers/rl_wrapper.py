@@ -44,7 +44,7 @@ class EncoderWrapper(gym.ObservationWrapper):
             low=-np.inf, high=np.inf, 
             shape=(encoder.output_dim,), dtype=np.float32
         )
-        print(f"Encoder wrapper: {env.observation_space.shape} -> {self.observation_space.shape}")
+        #print(f"Encoder wrapper: {env.observation_space.shape} -> {self.observation_space.shape}")
     
     def observation(self, obs):
         """Apply encoder to observation."""

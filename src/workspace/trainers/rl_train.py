@@ -14,16 +14,17 @@ def train_arm(encoder=None, save_dir="./models", **kwargs):
     """Train an agent using the wrapped environment."""
     
     if encoder is None:
-        from encoders.encoders import IdentityEncoder
-        encoder = IdentityEncoder(obs_dim=15)
+        raise ValueError("Encoder must be provided!")
     
-    # Use about 75% of available cores for environment processes
+    print(f"🧠 Training with encoder: {type(encoder).__name__}")
+    print(f"   Input dim: {encoder.input_dim}")
+    print(f"   Output dim: {encoder.output_dim}")
+    
+    # Create training environment
     num_cpu = max(1, int(0.75 * multiprocessing.cpu_count()))
     venv = create_training_env(num_envs=num_cpu, encoder=encoder)
     
     print(f"Number of CPU cores used: {num_cpu}")
-
-    # Ensure full seed consistency for Gym/Monitor wrappers
     base_seed = 42
     venv.seed(base_seed)
     
@@ -85,8 +86,8 @@ def train_arm(encoder=None, save_dir="./models", **kwargs):
         name_prefix="arm_sac"
     )
     
-    # Create eval env with same normalization
-    eval_env = create_eval_env(vec_normalize)
+    # 🔧 FIX: Pass BOTH training_env AND encoder to eval env
+    eval_env = create_eval_env(training_env=venv, encoder=encoder)
 
     eval_callback = EvalCallback(
         eval_env,
@@ -103,7 +104,7 @@ def train_arm(encoder=None, save_dir="./models", **kwargs):
     
     # Train the agent
     model.learn(
-        total_timesteps=800000,
+        total_timesteps=1200000,
         callback=callbacks,
         log_interval=1000,
         progress_bar=True
