@@ -2,6 +2,15 @@
 
 import torch
 import numpy as np
+import os
+
+def get_root_path():
+    root_path = os.path.abspath(os.path.dirname(__file__))
+    while root_path != os.path.dirname(root_path):
+        if os.path.exists(os.path.join(root_path, ".git")):
+            break
+        root_path = os.path.dirname(root_path)
+    return root_path
 
 def encode_numpy(encoder, observation: np.ndarray) -> np.ndarray:
     """Helper function to encode numpy arrays using PyTorch encoders."""
