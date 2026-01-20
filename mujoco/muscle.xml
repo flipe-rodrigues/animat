@@ -1,0 +1,61 @@
+<mujoco model="two-joint-limb">
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0 0 0 1" />
+    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="0" />
+    <quality shadowsize="2048" />
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4" />
+  </visual>
+
+  <default>
+    <muscle ctrllimited="true" ctrlrange="0 1" />
+  </default>
+
+  <worldbody>
+    <body name="passive_plate" pos="0 -.025 0">
+      <site name="soleus_site1" pos="0 .025 0" size="0.025" />
+      <site name="lambda_site1" pos=".2 .025 0" size="0.025" />
+      <site name="dummy_site1" pos="-.2 .025 0" size="0.001" />
+      <geom type="box" size=".25 .025 0.25" density="300" rgba="1 1 1 1" />
+
+      <body name="active_plate" pos="0 .15 0">
+        <site name="soleus_site2" pos="0 -.025 0" size="0.025" />
+        <site name="lambda_site2" pos=".2 -.025 0" size="0.025" />
+        <site name="dummy_site2" pos="-.2 -.025 0" size="0.001" />
+        <geom type="box" size=".25 .025 0.25" density="300" rgba="1 0 0 1" />
+        <joint name="stretcher_joint" pos="-.2 0 0" type="slide" axis="0 1 0" damping="0" />
+      </body>
+    </body>
+  </worldbody>
+
+  <tendon>
+    <spatial name="extrafusal" limited="true" range=".1 .5" width="0.008">
+      <site site="soleus_site1" />
+      <site site="soleus_site2" />
+    </spatial>
+
+    <spatial name="dummy_tendon" limited="true" range=".1 .5" width="0.008">
+      <site site="dummy_site1" />
+      <site site="dummy_site2" />
+    </spatial>
+
+    <spatial name="intrafusal" limited="true" range="0 1.5" width="0.008">
+      <site site="lambda_site1" />
+      <site site="lambda_site2" />
+    </spatial>
+  </tendon>
+
+  <actuator>
+    <velocity name="stretcher" joint="stretcher_joint" kv="1000" ctrlrange="0 1" />
+    <!-- <motor name="stretcher" ctrllimited="false" joint="stretcher_joint" gear="1" ctrlrange="0 1" /> -->
+    <muscle name="soleus" tendon="extrafusal" force="100" timeconst=".01 .04" ctrlrange="0 1" />
+  </actuator>
+
+  <sensor>
+    <actuatorpos name="soleus_length" actuator="soleus" />
+    <actuatorvel name="soleus_velocity" actuator="soleus" />
+    <actuatorfrc name="soleus_force" actuator="soleus" />
+  </sensor>
+
+</mujoco>
