@@ -33,7 +33,7 @@ data = mujoco.MjData(model)
 num_actuators = model.nu
 stretcher_id = model.actuator("stretcher").id
 
-dur2run = 3  # seconds
+dur2run = 5  # seconds
 time_data = []
 sensor_data = {
     "soleus_length": [],
