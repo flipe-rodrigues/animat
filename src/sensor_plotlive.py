@@ -1,10 +1,11 @@
+#%%
 import mujoco
 import mujoco.viewer
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-MODEL_XML_PATH = "mujoco/arm_model.xml"
+MODEL_XML_PATH = "mujoco/arm.xml"
 
 # Load the MuJoCo model
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)  # Replace with your model file

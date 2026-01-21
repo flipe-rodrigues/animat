@@ -1,0 +1,81 @@
+<mujoco model="muscle">
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0 0 0 1" />
+    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="0" />
+    <quality shadowsize="2048" />
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4" />
+  </visual>
+
+  <default>
+    <muscle ctrllimited="true" ctrlrange="0 1" />
+  </default>
+
+  <worldbody>
+    <body name="passive_plate" pos="0 -.025 0">
+      <site name="soleus_site1" pos="0 .025 0" size="0.025" />
+      <site name="lambda_static_site1" pos=".2 .025 0" size="0.0125" />
+      <site name="lambda_dynamic_site1" pos="-.2 .025 0" size="0.0125" />
+      <site name="dummy_site1" pos="-.2 .025 0" size="0.001" />
+      <geom type="box" size=".25 .025 0.25" density="300" rgba="1 1 1 1" />
+
+      <body name="active_plate" pos="0 .15 0">
+        <site name="soleus_site2" pos="0 -.025 0" size="0.025" />
+        <site name="lambda_static_site2" pos=".2 -.025 0" size="0.0125" />
+        <site name="lambda_dynamic_site2" pos="-.2 -.025 0" size="0.0125" />
+        <site name="dummy_site2" pos="-.2 -.025 0" size="0.001" />
+        <geom type="box" size=".25 .025 0.25" density="300" rgba="1 0 0 1" /> 
+        <joint name="stretcher_joint" pos="0 .4 0" type="slide" axis="0 1 0" damping="0" />
+      </body>
+    </body>
+
+    <!-- <body name="tiny_plate1" pos="0 -.025 .5">
+      <site name="lambda_dynamic_site1" pos="0 .025 0" size="0.0125" />
+      <geom type="box" size=".05 .025 0.05" density="300" rgba="1 1 1 1" />
+
+      <body name="tiny_plate2" pos="0 .15 0">
+        <site name="lambda_dynamic_site2" pos="0 -.025 0" size="0.0125" />
+        <geom type="box" size=".05 .025 0.05" density="300" rgba="1 0 0 1" /> 
+        <joint name="slide_joint" pos="-.2 0 0" type="slide" axis="0 1 0" damping="0" />
+      </body>
+    </body> -->
+  </worldbody>
+
+  <tendon>
+    <spatial name="extrafusal" limited="true" range=".1 .5" width="0.008">
+      <site site="soleus_site1" />
+      <site site="soleus_site2" />
+    </spatial>
+
+    <spatial name="dummy_tendon" limited="true" range=".1 .5" width="0.008">
+      <site site="dummy_site1" />
+      <site site="dummy_site2" />
+    </spatial>
+
+    <spatial name="intrafusal_static" limited="true" range="0 1.5" width="0.004">
+      <site site="lambda_static_site1" />
+      <site site="lambda_static_site2" />
+    </spatial>
+
+    <spatial name="intrafusal_dynamic" limited="true" range="0 1.5" width="0.004">
+      <site site="lambda_dynamic_site1" />
+      <site site="lambda_dynamic_site2" />
+    </spatial>
+  </tendon>
+
+  <actuator>
+    <velocity name="stretcher" joint="stretcher_joint" kv="1000" ctrlrange="-1 1" />
+    <muscle name="alpha" tendon="extrafusal" force="0" timeconst=".01 .04" ctrlrange="0 1" />
+    <muscle name="gamma_static" tendon="intrafusal_static" force="0" timeconst=".01 .04" ctrlrange="0 1" />
+    <muscle name="gamma_dynamic" tendon="intrafusal_dynamic" force="0" timeconst=".01 .04" ctrlrange="0 1" />
+    <muscle name="soleus" tendon="extrafusal" force="10" timeconst=".01 .04" ctrlrange="0 1" />
+  </actuator>
+
+  <sensor>
+    <actuatorpos name="soleus_length" actuator="soleus" />
+    <actuatorvel name="soleus_velocity" actuator="soleus" />
+    <actuatorfrc name="soleus_force" actuator="soleus" />
+  </sensor>
+
+</mujoco>
