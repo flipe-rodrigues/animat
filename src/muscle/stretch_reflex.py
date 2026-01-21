@@ -17,6 +17,8 @@ import mujoco.viewer
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from spindles import *
+from activation_laws import *
 
 # %%
 """
@@ -95,86 +97,6 @@ class StretchProtocol:
     def get_duration(self) -> float:
         """Get total duration of the protocol"""
         return sum(step.duration for step in self.steps)
-
-
-# %%
-"""
-..######..########..####.##....##.########..##.......########
-.##....##.##.....##..##..###...##.##.....##.##.......##......
-.##.......##.....##..##..####..##.##.....##.##.......##......
-..######..########...##..##.##.##.##.....##.##.......######..
-.......##.##.........##..##..####.##.....##.##.......##......
-.##....##.##.........##..##...###.##.....##.##.......##......
-..######..##........####.##....##.########..########.########
-"""
-
-
-class MuscleSpindle:
-    def __init__(self, model, data, gamma_static=0.0, gamma_dynamic=0.0):
-        self.model = model
-        self.data = data
-        self.length_sensor_id = model.sensor("muscle_length").id
-        self.velocity_sensor_id = model.sensor("muscle_velocity").id
-        self.gamma_static = gamma_static
-        self.gamma_dynamic = gamma_dynamic
-
-    def step(self, gamma_static, gamma_dynamic):
-        self.length = self.data.sensordata[self.length_sensor_id]
-        self.velocity = self.data.sensordata[self.velocity_sensor_id]
-        self.gamma_static = gamma_static
-        self.gamma_dynamic = gamma_dynamic
-
-    def compute_afferent_signals(self):
-        spindle_Ia = (
-            self.length + self.gamma_static + self.gamma_dynamic * self.velocity
-        )
-        spindle_II = self.length + self.gamma_static
-        return spindle_Ia, spindle_II
-
-
-# %%
-"""
-.########..########.########.##.......########.##.....##
-.##.....##.##.......##.......##.......##........##...##.
-.##.....##.##.......##.......##.......##.........##.##..
-.########..######...######...##.......######......###...
-.##...##...##.......##.......##.......##.........##.##..
-.##....##..##.......##.......##.......##........##...##.
-.##.....##.########.##.......########.########.##.....##
-"""
-
-
-class StretchReflex:
-    def __init__(self, model, data, spindle: MuscleSpindle, lambda_extra=0.5):
-        self.model = model
-        self.data = data
-        self.spindle = spindle
-        self.initialize_lambda_range(lambda_extra)
-
-    def initialize_lambda_range(self, lambda_extra):
-        muscle_id = self.model.actuator("muscle").id
-        [length_min, length_max] = self.model.actuator_lengthrange[muscle_id]
-        length_range = length_max - length_min
-        self.lambda_range = length_range * (1 + lambda_extra)
-        self.lambda_min = length_min - lambda_extra / 2 * length_range
-
-    def step(
-        self,
-        alpha_drive,
-        gamma_static_drive,
-        gamma_dynamic_drive,
-    ):
-        self.spindle.step(gamma_static_drive, gamma_dynamic_drive)
-        self.alpha_drive = alpha_drive
-        self.gamma_static_drive = gamma_static_drive
-        self.gamma_dynamic_drive = gamma_dynamic_drive
-        self.lambda_ = (1 - gamma_static_drive) * self.lambda_range + self.lambda_min
-        self.mu_ = gamma_dynamic_drive
-        self.lambda_star = (
-            self.lambda_ - self.mu_ * self.spindle.velocity - self.alpha_drive
-        )
-        force = max(0, self.spindle.length - self.lambda_star)
-        return force
 
 
 # %%
@@ -258,7 +180,7 @@ class StretchExperiment:
         model,
         data,
         protocol: StretchProtocol,
-        stretch_reflex: StretchReflex,
+        stretch_reflex: MuscleActivationLaw,
     ):
         self.model = model
         self.data = data
@@ -367,8 +289,8 @@ model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
 # Create and run experiment
-spindle = MuscleSpindle(model, data)
-stretch_reflex = StretchReflex(
+spindle = SimpleSpindle(model, data)
+stretch_reflex = FeldmanActivationLaw(
     model,
     data,
     spindle,
