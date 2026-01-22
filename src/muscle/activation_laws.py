@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from spindles import *
+from muscle.spindles import *
 
 
-class MuscleActivationLaw(ABC):
-    """Abstract base class for stretch reflex models"""
+class ActivationLaw(ABC):
+    """Abstract base class for muscle activation laws"""
 
     def __init__(self, model, data, spindle: Spindle):
         self.model = model
@@ -12,11 +12,11 @@ class MuscleActivationLaw(ABC):
 
     @abstractmethod
     def step(self, alpha_drive, gamma_static_drive, gamma_dynamic_drive):
-        """Compute reflex force based on drives"""
+        """Update activation law state with new drives"""
         pass
 
 
-class FeldmanActivationLaw(MuscleActivationLaw):
+class FeldmanActivationLaw(ActivationLaw):
 
     def __init__(self, model, data, spindle, lambda_extra=0.5):
         super().__init__(model, data, spindle)
@@ -39,10 +39,12 @@ class FeldmanActivationLaw(MuscleActivationLaw):
         self.alpha_drive = alpha_drive
         self.gamma_static_drive = gamma_static_drive
         self.gamma_dynamic_drive = gamma_dynamic_drive
-        self.lambda_ = (1 - gamma_static_drive) * self.lambda_range + self.lambda_min
+        self.lambda_ = (1 - (gamma_static_drive + alpha_drive)) * self.lambda_range + self.lambda_min
         self.mu_ = gamma_dynamic_drive
+        self.rho_ = 0
+        self.epsilon_ = 0
         self.lambda_star = (
-            self.lambda_ - self.mu_ * self.spindle.velocity - self.alpha_drive
+            self.lambda_ - self.mu_ * self.spindle.velocity + self.rho_ * self.epsilon_
         )
         force = max(0, self.spindle.length - self.lambda_star)
         return force

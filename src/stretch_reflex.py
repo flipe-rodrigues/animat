@@ -17,86 +17,9 @@ import mujoco.viewer
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from spindles import *
-from activation_laws import *
-
-# %%
-"""
-.########..########...#######..########..#######...######...#######..##......
-.##.....##.##.....##.##.....##....##....##.....##.##....##.##.....##.##......
-.##.....##.##.....##.##.....##....##....##.....##.##.......##.....##.##......
-.########..########..##.....##....##....##.....##.##.......##.....##.##......
-.##........##...##...##.....##....##....##.....##.##.......##.....##.##......
-.##........##....##..##.....##....##....##.....##.##....##.##.....##.##......
-.##........##.....##..#######.....##.....#######...######...#######..########
-"""
-
-
-@dataclass
-class StretchStep:
-    """Represents a single step in a stretch protocol"""
-
-    stretcher: float
-    alpha: float
-    gamma_static: float
-    gamma_dynamic: float
-    duration: float
-
-
-@dataclass
-class StretchCycle:
-    """Represents a single step in a stretch protocol"""
-
-    steps: List[StretchStep]
-
-
-class StretchProtocol:
-    def __init__(self):
-        self.cycles: List[StretchCycle] = []
-        self.steps: List[StretchStep] = []
-
-    def add_step(self, stretcher, alpha, gamma_static, gamma_dynamic, duration):
-        """Add a single step"""
-        self.steps.append(
-            StretchStep(stretcher, alpha, gamma_static, gamma_dynamic, duration)
-        )
-        return self
-
-    def add_cycle(
-        self, magnitude=0.1, gamma_static=0, gamma_dynamic=0, alpha=0, duration=5
-    ):
-        """Add a standard stretch cycle: 0 → +magnitude → 0 → -magnitude"""
-        steps = []
-        for magnitude, duration in [
-            (0, duration),
-            (magnitude, duration),
-            (0.0, duration),
-            (-magnitude, duration),
-            (0, duration),
-        ]:
-            steps.append(
-                StretchStep(magnitude, alpha, gamma_static, gamma_dynamic, duration)
-            )
-        self.cycles.append(StretchCycle(steps))
-        self.steps.extend(steps)
-        return self
-
-    def get_current_step(self, time) -> Optional[StretchStep]:
-        """Get the step active at the given time"""
-        cumulative_time = 0
-        for step in self.steps:
-            cumulative_time += step.duration
-            if time < cumulative_time:
-                return step
-        return None
-
-    def get_all_steps(self) -> List[StretchStep]:
-        """Get all steps"""
-        return self.steps
-
-    def get_duration(self) -> float:
-        """Get total duration of the protocol"""
-        return sum(step.duration for step in self.steps)
+from muscle.spindles import *
+from muscle.activation_laws import *
+from muscle.protocols import *
 
 
 # %%
@@ -180,12 +103,12 @@ class StretchExperiment:
         model,
         data,
         protocol: StretchProtocol,
-        stretch_reflex: MuscleActivationLaw,
+        activation_law: ActivationLaw,
     ):
         self.model = model
         self.data = data
         self.protocol = protocol
-        self.stretch_reflex = stretch_reflex
+        self.activation_law = activation_law
         self.log = StretchLogger()
         self.stretcher_id = model.actuator("stretcher").id
         self.muscle_id = model.actuator("muscle").id
@@ -210,13 +133,13 @@ class StretchExperiment:
             current_step = self.protocol.get_current_step(self.data.time)
 
             # Apply instruction to controls
-            self.data.ctrl[self.stretcher_id] = current_step.stretcher
-            alpha_drive = current_step.alpha
-            gamma_static_drive = current_step.gamma_static
-            gamma_dynamic_drive = current_step.gamma_dynamic
+            self.data.ctrl[self.stretcher_id] = current_step.stretch_velocity
+            alpha_drive = current_step.alpha_drive
+            gamma_static_drive = current_step.gamma_static_drive
+            gamma_dynamic_drive = current_step.gamma_dynamic_drive
 
             # stretch reflex parameters
-            force = self.stretch_reflex.step(
+            force = self.activation_law.step(
                 alpha_drive,
                 gamma_static_drive,
                 gamma_dynamic_drive,
@@ -227,22 +150,22 @@ class StretchExperiment:
 
             # Compute spindle afferent signals
             spindle_Ia, spindle_II = (
-                self.stretch_reflex.spindle.compute_afferent_signals()
+                self.activation_law.spindle.compute_afferent_signals()
             )
 
             # Log data
             self.log.append(
                 time=self.data.time,
-                stretcher=current_step.stretcher,
-                length=self.stretch_reflex.spindle.length,
-                velocity=self.stretch_reflex.spindle.velocity,
+                stretcher=current_step.stretch_velocity,
+                length=self.activation_law.spindle.length,
+                velocity=self.activation_law.spindle.velocity,
                 force=self.data.sensordata[self.force_sensor_id],
-                alpha_=current_step.alpha,
-                gamma_static=current_step.gamma_static,
-                gamma_dynamic=current_step.gamma_dynamic,
-                lambda_=self.stretch_reflex.lambda_,
-                mu_=self.stretch_reflex.mu_,
-                lambda_star=self.stretch_reflex.lambda_star,
+                alpha_=current_step.alpha_drive,
+                gamma_static=current_step.gamma_static_drive,
+                gamma_dynamic=current_step.gamma_dynamic_drive,
+                lambda_=self.activation_law.lambda_,
+                mu_=self.activation_law.mu_,
+                lambda_star=self.activation_law.lambda_star,
                 spindle_Ia=spindle_Ia,
                 spindle_II=spindle_II,
             )
@@ -257,6 +180,10 @@ class StretchExperiment:
 
             # Step the simulation
             mujoco.mj_step(self.model, self.data)
+    
+    if self.viewer is not None:
+        self.viewer.close()
+        self.viewer = None
 
 
 # %%
@@ -273,20 +200,21 @@ class StretchExperiment:
 # Define stretch protocol
 protocol = (
     StretchProtocol()
-    .add_cycle(magnitude=0.1, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.5, duration=4)
-    .add_cycle(magnitude=0.1, gamma_dynamic=0.5, duration=4)
-    .add_cycle(magnitude=0.4, gamma_dynamic=0.5, duration=1)
-    .add_cycle(magnitude=0.4, gamma_static=0.5, gamma_dynamic=0.5, duration=1)
-    .add_cycle(magnitude=0.1, alpha=0.5, duration=4)
-    .add_cycle(magnitude=0.1, alpha=0.5, gamma_static=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_dynamic_drive=0.5, duration=4)
+    .add_cycle(stretch_speed=0.4, gamma_dynamic_drive=0.5, duration=1)
+    .add_cycle(stretch_speed=0.4, gamma_static_drive=0.5, gamma_dynamic_drive=0.5, duration=1)
+    .add_cycle(stretch_speed=0.1, alpha_drive=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, alpha_drive=0.5, gamma_static_drive=0.5, duration=4)
 )
 
 # Load model and data
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "../../mujoco/muscle.xml"
+MODEL_XML_PATH = "../mujoco/muscle.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
+# plant class? with model and data? gets xml as input?
 
 # Create and run experiment
 spindle = SimpleSpindle(model, data)
@@ -405,28 +333,28 @@ plt.show()
 # %%
 protocol = (
     StretchProtocol()
-    .add_cycle(magnitude=0.1, gamma_static=0, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.1, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.2, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.3, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.4, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.5, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.6, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.7, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.8, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=0.9, duration=4)
-    .add_cycle(magnitude=0.1, gamma_static=1.0, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.1, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.2, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.3, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.4, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.6, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.7, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.8, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.9, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static_drive=1.0, duration=4)
 )
 
 # Load model and data
 os.chdir(os.path.dirname(__file__))
-MODEL_XML_PATH = "../../mujoco/muscle.xml"
+MODEL_XML_PATH = "../mujoco/muscle.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
 data = mujoco.MjData(model)
 
 # Create and run experiment
-spindle = MuscleSpindle(model, data)
-stretch_reflex = StretchReflex(
+spindle = SimpleSpindle(model, data)
+stretch_reflex = FeldmanActivationLaw(
     model,
     data,
     spindle,
