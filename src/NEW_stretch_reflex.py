@@ -102,7 +102,7 @@ class StretchExperiment:
         self,
         model,
         data,
-        protocol: StretchProtocol,
+        protocol: Protocol,
         activation_law: ActivationLaw,
     ):
         self.model = model
@@ -181,9 +181,9 @@ class StretchExperiment:
             # Step the simulation
             mujoco.mj_step(self.model, self.data)
     
-    if self.viewer is not None:
-        self.viewer.close()
-        self.viewer = None
+        if render and self.viewer is not None:
+            self.viewer.close()
+            self.viewer = None
 
 
 # %%
