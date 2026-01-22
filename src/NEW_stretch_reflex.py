@@ -44,7 +44,7 @@ class StretchLogger:
         "length",
         "velocity",
         "force",
-        "alpha_",
+        "alpha_drive",
         "gamma_static",
         "gamma_dynamic",
         "lambda_",
@@ -113,8 +113,8 @@ class StretchExperiment:
         self.stretcher_id = model.actuator("stretcher").id
         self.muscle_id = model.actuator("muscle").id
         self.alpha_drive_id = model.actuator("alpha_drive").id
-        self.gamma_static_drive_id = model.actuator("gamma_static_drive").id
-        self.gamma_dynamic_drive_id = model.actuator("gamma_dynamic_drive").id
+        self.gamma_static_id = model.actuator("gamma_static").id
+        self.gamma_dynamic_id = model.actuator("gamma_dynamic").id
         self.force_sensor_id = model.sensor("muscle_force").id
 
     def run(self, render=False, render_speed=1.0):
@@ -135,14 +135,14 @@ class StretchExperiment:
             # Apply instruction to controls
             self.data.ctrl[self.stretcher_id] = current_step.stretch_velocity
             alpha_drive = current_step.alpha_drive
-            gamma_static_drive = current_step.gamma_static_drive
-            gamma_dynamic_drive = current_step.gamma_dynamic_drive
+            gamma_static = current_step.gamma_static
+            gamma_dynamic = current_step.gamma_dynamic
 
             # stretch reflex parameters
             force = self.activation_law.step(
                 alpha_drive,
-                gamma_static_drive,
-                gamma_dynamic_drive,
+                gamma_static,
+                gamma_dynamic,
             )
 
             # Apply muscle force
@@ -160,9 +160,9 @@ class StretchExperiment:
                 length=self.activation_law.spindle.length,
                 velocity=self.activation_law.spindle.velocity,
                 force=self.data.sensordata[self.force_sensor_id],
-                alpha_=current_step.alpha_drive,
-                gamma_static=current_step.gamma_static_drive,
-                gamma_dynamic=current_step.gamma_dynamic_drive,
+                alpha_drive=current_step.alpha_drive,
+                gamma_static=current_step.gamma_static,
+                gamma_dynamic=current_step.gamma_dynamic,
                 lambda_=self.activation_law.lambda_,
                 mu_=self.activation_law.mu_,
                 lambda_star=self.activation_law.lambda_star,
@@ -174,8 +174,8 @@ class StretchExperiment:
             if render and self.viewer.is_running():
                 self.viewer.sync()
                 self.data.ctrl[self.alpha_drive_id] = alpha_drive
-                self.data.ctrl[self.gamma_static_drive_id] = gamma_static_drive
-                self.data.ctrl[self.gamma_dynamic_drive_id] = gamma_dynamic_drive
+                self.data.ctrl[self.gamma_static_id] = gamma_static
+                self.data.ctrl[self.gamma_dynamic_id] = gamma_dynamic
                 time.sleep(self.model.opt.timestep / render_speed)
 
             # Step the simulation
@@ -201,12 +201,12 @@ class StretchExperiment:
 protocol = (
     StretchProtocol()
     .add_cycle(stretch_speed=0.1, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.5, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_dynamic_drive=0.5, duration=4)
-    .add_cycle(stretch_speed=0.4, gamma_dynamic_drive=0.5, duration=1)
-    .add_cycle(stretch_speed=0.4, gamma_static_drive=0.5, gamma_dynamic_drive=0.5, duration=1)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_dynamic=0.5, duration=4)
+    .add_cycle(stretch_speed=0.4, gamma_dynamic=0.5, duration=1)
+    .add_cycle(stretch_speed=0.4, gamma_static=0.5, gamma_dynamic=0.5, duration=1)
     .add_cycle(stretch_speed=0.1, alpha_drive=0.5, duration=4)
-    .add_cycle(stretch_speed=0.1, alpha_drive=0.5, gamma_static_drive=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, alpha_drive=0.5, gamma_static=0.5, duration=4)
 )
 
 # Load model and data
@@ -270,18 +270,18 @@ axes[idx].set_title("Muscle Force")
 axes[idx].set_ylabel("Force (a.u.)")
 idx += 1
 
-axes[idx].plot(df["time"], df["alpha_"], color="black")
+axes[idx].plot(df["time"], df["alpha_drive"], color="black")
 axes[idx].set_title(r"$\alpha$ drive")
 axes[idx].set_ylabel("Control (a.u.)")
 idx += 1
 
 axes[idx].plot(df["time"], df["gamma_static"], color="black")
-axes[idx].set_title(r"$\gamma_{static}$ drive")
+axes[idx].set_title(r"$\gamma_{static}$")
 axes[idx].set_ylabel("Control (a.u.)")
 idx += 1
 
 axes[idx].plot(df["time"], df["gamma_dynamic"], color="black")
-axes[idx].set_title(r"$\gamma_{dynamic}$ drive")
+axes[idx].set_title(r"$\gamma_{dynamic}$")
 axes[idx].set_ylabel("Control (a.u.)")
 idx += 1
 
@@ -333,17 +333,17 @@ plt.show()
 # %%
 protocol = (
     StretchProtocol()
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.1, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.2, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.3, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.4, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.5, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.6, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.7, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.8, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=0.9, duration=4)
-    .add_cycle(stretch_speed=0.1, gamma_static_drive=1.0, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.1, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.2, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.3, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.4, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.5, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.6, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.7, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.8, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=0.9, duration=4)
+    .add_cycle(stretch_speed=0.1, gamma_static=1.0, duration=4)
 )
 
 # Load model and data

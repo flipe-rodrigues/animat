@@ -56,8 +56,8 @@ class StretchStep(Step):
 
     stretch_velocity: float
     alpha_drive: float
-    gamma_static_drive: float
-    gamma_dynamic_drive: float
+    gamma_static: float
+    gamma_dynamic: float
     duration: float
 
 
@@ -80,16 +80,16 @@ class StretchProtocol(Protocol):
         self,
         stretch_velocity,
         alpha_drive,
-        gamma_static_drive,
-        gamma_dynamic_drive,
+        gamma_static,
+        gamma_dynamic,
         duration,
     ):
         self.steps.append(
             StretchStep(
                 stretch_velocity=stretch_velocity,
                 alpha_drive=alpha_drive,
-                gamma_static_drive=gamma_static_drive,
-                gamma_dynamic_drive=gamma_dynamic_drive,
+                gamma_static=gamma_static,
+                gamma_dynamic=gamma_dynamic,
                 duration=duration,
             )
         )
@@ -99,8 +99,8 @@ class StretchProtocol(Protocol):
         self,
         stretch_speed=0.1,
         alpha_drive=0,
-        gamma_static_drive=0,
-        gamma_dynamic_drive=0,
+        gamma_static=0,
+        gamma_dynamic=0,
         duration=5,
     ):
         """Add a standard stretch cycle: 0 → +speed → 0 → -speed → 0"""
@@ -116,8 +116,8 @@ class StretchProtocol(Protocol):
                 StretchStep(
                     stretch_velocity=stretch_velocity,
                     alpha_drive=alpha_drive,
-                    gamma_static_drive=gamma_static_drive,
-                    gamma_dynamic_drive=gamma_dynamic_drive,
+                    gamma_static=gamma_static,
+                    gamma_dynamic=gamma_dynamic,
                     duration=duration,
                 )
             )

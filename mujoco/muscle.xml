@@ -42,8 +42,8 @@
     <velocity name="stretcher" joint="stretcher_joint" kv="1000" ctrlrange="-1 1" />
     <muscle name="muscle" tendon="extrafusal" force="1" timeconst=".01 .04" ctrlrange="0 1" />
     <velocity name="alpha_drive" joint="dummy_joint" kv="1" ctrlrange="0 1" />
-    <velocity name="gamma_static_drive" joint="dummy_joint" kv="1" ctrlrange="0 1" />
-    <velocity name="gamma_dynamic_drive" joint="dummy_joint" kv="1" ctrlrange="0 1" />
+    <velocity name="gamma_static" joint="dummy_joint" kv="1" ctrlrange="0 1" />
+    <velocity name="gamma_dynamic" joint="dummy_joint" kv="1" ctrlrange="0 1" />
   </actuator>
 
   <sensor>

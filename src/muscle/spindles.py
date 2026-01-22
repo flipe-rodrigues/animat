@@ -24,6 +24,7 @@ class Spindle(ABC):
 
 
 class SimpleSpindle(Spindle):
+    """A simple muscle spindle model"""
 
     def step(self, gamma_static, gamma_dynamic):
         self.length = self.data.sensordata[self.length_sensor_id]

@@ -32,15 +32,15 @@ class FeldmanActivationLaw(ActivationLaw):
     def step(
         self,
         alpha_drive,
-        gamma_static_drive,
-        gamma_dynamic_drive,
+        gamma_static,
+        gamma_dynamic,
     ):
-        self.spindle.step(gamma_static_drive, gamma_dynamic_drive)
+        self.spindle.step(gamma_static, gamma_dynamic)
         self.alpha_drive = alpha_drive
-        self.gamma_static_drive = gamma_static_drive
-        self.gamma_dynamic_drive = gamma_dynamic_drive
-        self.lambda_ = (1 - (gamma_static_drive + alpha_drive)) * self.lambda_range + self.lambda_min
-        self.mu_ = gamma_dynamic_drive
+        self.gamma_static = gamma_static
+        self.gamma_dynamic = gamma_dynamic
+        self.lambda_ = (1 - (gamma_static + alpha_drive)) * self.lambda_range + self.lambda_min
+        self.mu_ = gamma_dynamic
         self.rho_ = 0
         self.epsilon_ = 0
         self.lambda_star = (
