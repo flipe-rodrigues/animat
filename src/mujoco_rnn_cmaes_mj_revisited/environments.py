@@ -132,7 +132,6 @@ class SequentialReachingEnv:
         target_onset_times = np.concatenate(
             [[0], (target_durations[:-1] + itis[:-1]).cumsum()]
         )
-        iti_onset_times = target_onset_times + target_durations
         target_offset_times = target_onset_times + target_durations
 
         trial_duration = target_durations.sum() + itis.sum()
@@ -140,6 +139,7 @@ class SequentialReachingEnv:
 
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
+        target_is_active = True
 
         hand_position = self.plant.get_hand_pos()
 
@@ -158,7 +158,7 @@ class SequentialReachingEnv:
             energy = sum(action**2)
 
             reward = -(
-                distance * self.loss_weights["distance"]
+                distance * (self.loss_weights["distance"] if self.plant.target_is_active else 0)
                 + energy * self.loss_weights["energy"]
                 + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
                 + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
@@ -187,11 +187,7 @@ class SequentialReachingEnv:
                 and self.plant.data.time >= target_onset_times[target_idx]
             ):
                 self.plant.update_target(target_positions[target_idx])
-
-            if self.plant.data.time > target_offset_times[target_idx]:
-                target_idx += 1
-                if target_idx < self.num_targets:
-                    self.plant.update_target(target_positions[target_idx])
+                self.plant.enable_target()
 
         self.plant.close()
 
@@ -376,22 +372,15 @@ class SequentialReachingEnv:
         # Distance
         axes[1, 1].plot(
             log["time"],
-            log["manhattan_distance"],
+            log["distance"],
             linewidth=linewidth,
-            label="Manhattan",
-        )
-        axes[1, 1].plot(
-            log["time"],
-            log["euclidean_distance"],
-            linewidth=linewidth,
-            label="Euclidean",
+            label="Distance",
         )
         axes[1, 1].set_title("Distance")
         axes[1, 1].set_ylim([-0.05, 2.05])
         axes[1, 1].legend()
 
         # Energy
-        axes[2, 0].plot(log["time"], log["entropy"], linewidth=0.1, label="Entropy")
         axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
         axes[2, 0].set_title("Energy")
         axes[2, 0].set_ylim([-0.05, 2.05])
@@ -446,12 +435,12 @@ class SequentialReachingEnv:
         ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
         ax_right.plot(
             log["time"][:-1],
-            log["euclidean_distance"][:-1],
+            log["distance"][:-1],
             linewidth=linewidth,
-            label="Euclidean Distance",
+            label="Distance",
             color="red",
         )
-        ax_right.set_ylabel("Euclidean Distance", color="red")
+        ax_right.set_ylabel("Distance", color="red")
         ax_right.tick_params(axis="y", labelcolor="red")
 
         self.logger = None

@@ -67,7 +67,7 @@ while data.time < dur2run:
     # Random actuator control
     if data.time >= next_update_time:
         data.ctrl[:] = np.clip(
-            np.random.normal(size=num_actuators, loc=0.5, scale=0.33), 0, 1
+            np.random.normal(size=num_actuators, loc=0.5, scale=0.5), 0, 1
         )
         next_update_time += np.random.exponential(scale=1.5)
 

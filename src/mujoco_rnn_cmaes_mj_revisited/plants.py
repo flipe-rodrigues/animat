@@ -20,6 +20,7 @@ class SequentialReacher:
 
         # Get target ID
         self.target_id = self.model.geom("target").id
+        self.target_is_active = True
 
         # Get the site ID using the name of your end effector
         self.hand_id = self.model.geom("hand").id
@@ -62,15 +63,16 @@ class SequentialReacher:
     def update_target(self, position):
         """Update the position of the target"""
         self.data.mocap_pos[0] = position
-        self.reveal_target()
         mujoco.mj_forward(self.model, self.data)
 
-    def hide_target(self):
-        self.model.geom[self.target_id].rgba[-1] = 0.0
+    def disable_target(self):
+        self.model.geom_rgba[self.target_id][-1] = 0.0
+        self.target_is_active = False
         mujoco.mj_forward(self.model, self.data)
 
-    def reveal_target(self):
-        self.model.geom[self.target_id].rgba[-1] = 1.0
+    def enable_target(self):
+        self.model.geom_rgba[self.target_id][-1] = 1.0
+        self.target_is_active = True
         mujoco.mj_forward(self.model, self.data)
 
     def update_nail(self, position):
