@@ -154,11 +154,15 @@ class SequentialReachingEnv:
 
             hand_position = self.plant.get_hand_pos()
             target_position = target_positions[target_idx]
-            distance = l2_norm(target_position - hand_position)
+            distance = (
+                l2_norm(target_position - hand_position)
+                if self.plant.target_is_active
+                else 0
+            )
             energy = sum(action**2)
 
             reward = -(
-                distance * (self.loss_weights["distance"] if self.plant.target_is_active else 0)
+                distance * self.loss_weights["distance"]
                 + energy * self.loss_weights["energy"]
                 + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
                 + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
