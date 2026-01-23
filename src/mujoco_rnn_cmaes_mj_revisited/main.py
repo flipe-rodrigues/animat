@@ -12,7 +12,7 @@ import pickle
 import matplotlib.pyplot as plt
 from plants import SequentialReacher
 from environments import SequentialReachingEnv
-from networks import RNN
+from networks import *
 from utils import *
 from cmaes import CMA
 import numpy as np
@@ -33,10 +33,12 @@ if __name__ == "__main__":
     reacher = SequentialReacher(plant_xml_file="arm.xml")
 
     # Specify policy
-    rnn = RNN(
-        input_size=3 + reacher.num_sensors,
+    rnn = NeuroMuscularRNN(
+        input_size_target=3,
+        input_size_proprioceptive=reacher.num_sensors,
+        input_size_efferent=reacher.num_actuators,
         hidden_size=25,
-        output_size=reacher.num_actuators,
+        output_size=reacher.num_actuators * 3,
         activation=tanh,
         alpha=reacher.model.opt.timestep / 10e-3,
     )
