@@ -18,7 +18,7 @@ class Spindle(ABC):
         pass
 
     @abstractmethod
-    def compute_afferent_signals(self):
+    def compute_afferents(self):
         """Compute afferent firing rates"""
         pass
 
@@ -32,9 +32,9 @@ class SimpleSpindle(Spindle):
         self.gamma_static = gamma_static
         self.gamma_dynamic = gamma_dynamic
 
-    def compute_afferent_signals(self):
-        spindle_Ia = (
+    def compute_afferents(self):
+        Ia_afferent = (
             self.length + self.gamma_static + self.gamma_dynamic * self.velocity
         )
-        spindle_II = self.length + self.gamma_static
-        return spindle_Ia, spindle_II
+        II_afferent = self.length + self.gamma_static
+        return Ia_afferent, II_afferent
