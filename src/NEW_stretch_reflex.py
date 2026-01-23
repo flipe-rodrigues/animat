@@ -127,7 +127,7 @@ class StretchExperiment:
             self.viewer.cam.azimuth = 180
             self.viewer.cam.elevation = -10
             self.viewer.sync()
-
+            
         while self.data.time < duration:
 
             # Get current instruction
@@ -177,6 +177,7 @@ class StretchExperiment:
 
             # Render if needed
             if render and self.viewer.is_running():
+                self.viewer.show_sensors = True
                 self.viewer.sync()
                 self.data.ctrl[self.alpha_drive_id] = alpha_drive
                 self.data.ctrl[self.gamma_static_id] = gamma_static
@@ -234,7 +235,7 @@ lambda_model = FeldmanActivationLaw(
 experiment = StretchExperiment(model, data, protocol, lambda_model)
 
 # Run with rendering
-experiment.run(render=False, render_speed=10)
+experiment.run(render=True, render_speed=10)
 
 # %%
 """

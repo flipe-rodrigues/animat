@@ -1,37 +1,33 @@
-<mujoco model="two-joint-limb">
+<mujoco model="two-joint-arm">
 
   <visual>
     <map force="0.1" zfar="30" />
     <rgba haze="0 0 0 1" />
-    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="0" />
+    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="90" />
     <quality shadowsize="2048" />
-    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4"/>
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4" />
   </visual>
 
   <asset>
-    <!-- No skybox, no grid -->
-    <material name="arm_mat" rgba="0.8 0.7 0.6 1" specular="0.1" shininess="0.1" reflectance="0"/>
-    <material name="tendon_mat" rgba="1 1 1 1" specular="0" shininess="0" reflectance="0" emission="0.2"/>
+    <material name="arm_mat" rgba="0.8 0.7 0.6 1" specular="0.1" shininess="0.1" reflectance="0" />
+    <material name="tendon_mat" rgba="1 1 1 1" specular="0" shininess="0" reflectance="0"
+      emission="0.2" />
   </asset>
 
   <default>
-    <joint damping="0.1" />
-    <muscle ctrllimited="true" ctrlrange="0 1" />
-    <geom material="arm_mat" />
+    <joint stiffness="5" damping="1" />
+    <muscle ctrllimited="true" ctrlrange="0 1" vmax="1.2" fpmax="1.4" timeconst=".01 .04"/>
+    <geom density="1200" material="arm_mat" />
     <tendon material="tendon_mat" />
   </default>
 
   <worldbody>
-    <!-- No extra lights, just headlight for soft shading -->
-    <camera name="top" mode="fixed" pos="0 0 3.5" euler="0 0 0" fovy="30"/>
-    <!-- No floor, so background is black -->
-
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
 
       <!-- tendon attachment sites -->
-      <site name="deltoid1" pos=".25 0 0" size="0.01" />
-      <site name="latissimus1" pos="-0.25 0 0" size="0.01" />
+      <site name="deltoid_site1" pos=".25 0 0" size="0.01" />
+      <site name="latissimus_site1" pos="-0.25 0 0" size="0.01" />
 
       <!-- UPPER ARM -->
       <body name="upper_arm" pos="0 0 0">
@@ -40,10 +36,10 @@
         <joint name="shoulder" type="hinge" axis="0 0 1" range="-60 60" />
 
         <!-- tendon attachment sites -->
-        <site name="deltoid2" pos="0.025 -.1 0" size="0.01" />
-        <site name="latissimus2" pos="-0.025 -.1 0" size="0.01" />
-        <site name="biceps1" pos="0.05 0 0" size="0.01" />
-        <site name="triceps1" pos="-0.05 0 0" size="0.01" />
+        <site name="deltoid_site2" pos="0.025 -.1 0" size="0.01" />
+        <site name="latissimus_site2" pos="-0.025 -.1 0" size="0.01" />
+        <site name="biceps_site1" pos="0.05 0 0" size="0.01" />
+        <site name="triceps_site1" pos="-0.05 0 0" size="0.01" />
 
         <!-- humerus -->
         <geom name="humerus" type="cylinder" size="0.025" fromto="0 0 0 0 -.4 0" />
@@ -55,8 +51,8 @@
           <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" />
 
           <!-- tendon attachment sites -->
-          <site name="biceps2" pos=".1 .03 0" size="0.01" />
-          <site name="triceps2" pos="-.08 0 0" size="0.01" />
+          <site name="biceps_site2" pos=".1 .03 0" size="0.01" />
+          <site name="triceps_site2" pos="-.08 0 0" size="0.01" />
 
           <!-- radius -->
           <geom name="radius" type="cylinder" size="0.025" fromto="-.075 0 0 .5 0 0" />
@@ -90,34 +86,33 @@
 
   <tendon>
     <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.008" rgba="1 0 1 1">
-      <site site="deltoid1" />
-      <site site="deltoid2" />
+      <site site="deltoid_site1" />
+      <site site="deltoid_site2" />
     </spatial>
 
     <spatial name="latissimus_tendon" limited="true" range="0 1" width="0.008" rgba="1 1 0 1">
-      <site site="latissimus1" />
-      <site site="latissimus2" />
+      <site site="latissimus_site1" />
+      <site site="latissimus_site2" />
     </spatial>
 
     <spatial name="biceps_tendon" limited="true" range="0 .485" width="0.008" rgba="1 0 0 1">
-      <site site="biceps1" />
+      <site site="biceps_site1" />
       <geom geom="humerus" />
-      <site site="biceps2" />
+      <site site="biceps_site2" />
     </spatial>
 
     <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.008" rgba="0 1 0 1">
-      <site site="triceps1" />
+      <site site="triceps_site1" />
       <geom geom="radius" />
-      <site site="triceps2" />
+      <site site="triceps_site2" />
     </spatial>
   </tendon>
 
   <actuator>
-    <muscle name="deltoid" tendon="deltoid_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
-    <muscle name="latissimus" tendon="latissimus_tendon" ctrlrange="0 1" force="100"
-      timeconst=".01 .04" />
-    <muscle name="biceps" tendon="biceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
-    <muscle name="triceps" tendon="triceps_tendon" ctrlrange="0 1" force="100" timeconst=".01 .04" />
+    <muscle name="deltoid" tendon="deltoid_tendon" force="100"/>
+    <muscle name="latissimus" tendon="latissimus_tendon" force="100"/>
+    <muscle name="biceps" tendon="biceps_tendon" force="100"/>
+    <muscle name="triceps" tendon="triceps_tendon" force="100"/>
   </actuator>
 
   <sensor>
