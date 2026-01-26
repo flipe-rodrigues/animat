@@ -112,7 +112,7 @@ class NeuroMuscularRNN:
         )
 
         # Compute lambda (dynamic threshold for alpha-motoneuron recruitment)
-        lambda_ = 1.0 - self.gs + a_input - self.gd * vel_obs
+        lambda_ = 1 - self.gs - a_input - self.gd * vel_obs
 
         # Update gamma static and dynamic motoneurons
         self.gs = self.one_minus_tau * self.gs + self.tau * self.activation(gs_input)
