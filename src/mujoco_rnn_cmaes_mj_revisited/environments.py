@@ -136,60 +136,14 @@ class SequentialReachingEnv:
             [[0], (target_durations[:-1] + itis[:-1]).cumsum()]
         )
         target_offset_times = target_onset_times + target_durations
-
         trial_duration = target_durations.sum() + itis.sum()
+        
         total_reward = 0
-
         target_idx = 0
-        self.plant.update_target(target_positions[target_idx])
-        self.plant.enable_target()
-
-        hand_position = self.plant.get_hand_pos()
 
         while target_idx < self.num_targets:
             if render:
                 self.plant.render()
-
-            tgt_pos = self.plant.get_target_pos()
-            tgt_obs = self.target_encoder.encode(tgt_pos[0], tgt_pos[1]).flatten()
-            tgt_obs *= 1 if self.plant.target_is_active else 0
-
-            len_obs = self.plant.get_len_obs()
-            vel_obs = self.plant.get_vel_obs()
-            frc_obs = self.plant.get_frc_obs()
-
-            action = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
-            self.plant.step(action)
-
-            hand_position = self.plant.get_hand_pos()
-            target_position = target_positions[target_idx]
-            distance = (
-                l2_norm(target_position - hand_position)
-                if self.plant.target_is_active
-                else 0
-            )
-            energy = sum(action**2)
-
-            reward = -(
-                distance * self.loss_weights["distance"]
-                + energy * self.loss_weights["energy"]
-                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
-                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
-            )
-
-            total_reward += reward
-
-            if log:
-                self.log(
-                    time=self.plant.data.time,
-                    sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
-                    target_position=target_position,
-                    hand_position=hand_position,
-                    distance=distance,
-                    energy=energy,
-                    reward=reward,
-                    fitness=total_reward / trial_duration,
-                )
 
             if self.plant.data.time >= target_offset_times[target_idx]:
                 self.plant.disable_target()
@@ -199,11 +153,51 @@ class SequentialReachingEnv:
                 target_idx < self.num_targets
                 and self.plant.data.time >= target_onset_times[target_idx]
             ):
-                self.plant.update_target(target_positions[target_idx])
+                target_position = target_positions[target_idx]
+                self.plant.update_target(target_position)
                 self.plant.enable_target()
 
-        self.plant.close()
+            tgt_obs = self.target_encoder.encode(
+                target_position[0], target_position[1]
+            ).flatten()
+            tgt_obs *= 1 if self.plant.target_is_active else 0
 
+            len_obs = self.plant.get_len_obs()
+            vel_obs = self.plant.get_vel_obs()
+            frc_obs = self.plant.get_frc_obs()
+
+            # Compute motor commands (i.e., alpha-MN activations)
+            motor_commands = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
+            self.plant.step(motor_commands)
+
+            hand_pos = self.plant.get_hand_pos()
+            distance = (
+                l2_norm(target_position - hand_pos)
+                if self.plant.target_is_active
+                else 0
+            )
+            energy = sum(motor_commands**2)
+
+            reward = -(
+                distance * self.loss_weights["distance"]
+                + energy * self.loss_weights["energy"]
+                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
+                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
+            )
+            total_reward += reward
+
+            if log:
+                self.log(
+                    time=self.plant.data.time,
+                    sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
+                    target_position=target_position,
+                    hand_position=hand_pos,
+                    distance=distance,
+                    energy=energy,
+                    reward=reward,
+                    fitness=total_reward / trial_duration,
+                )
+        self.plant.close()
         return total_reward / trial_duration
 
     """

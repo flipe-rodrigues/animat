@@ -140,7 +140,7 @@ class NeuroMuscularRNN:
 
     def from_params(self, params):
         """Create new instance with specified parameters"""
-        nmrnn = NeuroMuscularRNN(
+        rnn = NeuroMuscularRNN(
             self.input_size_tgt,
             self.input_size_len,
             self.input_size_vel,
@@ -150,8 +150,8 @@ class NeuroMuscularRNN:
             self.activation,
             self.tau,
         )
-        nmrnn.set_params(params)
-        return nmrnn
+        rnn.set_params(params)
+        return rnn
 
     def copy(self):
         """Create an independent copy"""

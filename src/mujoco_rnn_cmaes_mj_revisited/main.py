@@ -41,14 +41,8 @@ if __name__ == "__main__":
         sigma=0.25,
     )
 
-    print(target_encoder.size)
-    print(reacher.num_sensors_len)
-    print(reacher.num_sensors_vel)
-    print(reacher.num_sensors_frc)
-    print(reacher.num_actuators)
-
     # Specify policy
-    nmrnn = NeuroMuscularRNN(
+    rnn = NeuroMuscularRNN(
         input_size_tgt=target_encoder.size,
         input_size_len=reacher.num_sensors_len,
         input_size_vel=reacher.num_sensors_vel,
@@ -75,21 +69,20 @@ if __name__ == "__main__":
     )
 
     # Optimization setup
-    print(nmrnn.get_params().shape)
-    optimizer = CMA(mean=nmrnn.get_params(), sigma=1.3)
+    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
     num_generations = 10000
     fitnesses = []
     for gg in range(num_generations):
         solutions = []
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
-            fitness = -env.evaluate(nmrnn.from_params(x), seed=gg)
+            fitness = -env.evaluate(rnn.from_params(x), seed=gg)
             solutions.append((x, fitness))
             fitnesses.append((gg, ii, fitness))
             print(f"#{gg}.{ii} {fitness}")
         optimizer.tell(solutions)
 
-        best_rnn = nmrnn.from_params(optimizer.mean)
+        best_rnn = rnn.from_params(optimizer.mean)
         if gg % 10 == 0:
             env.evaluate(best_rnn, seed=0, render=True, log=True)
             env.plot()
