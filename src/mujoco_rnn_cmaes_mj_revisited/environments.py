@@ -12,7 +12,8 @@ import pickle
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from plants import SequentialReacher
-from networks import RNN
+from encoders import *
+from networks import *
 from utils import *
 
 
@@ -31,12 +32,14 @@ class SequentialReachingEnv:
     def __init__(
         self,
         plant,
+        target_encoder: TargetEncoder,
         target_duration_distro,
         iti_distro,
         num_targets,
         loss_weights,
     ):
         self.plant = plant
+        self.target_encoder = target_encoder
         self.target_duration_distro = target_duration_distro
         self.iti_distro = iti_distro
         self.num_targets = num_targets
@@ -139,7 +142,7 @@ class SequentialReachingEnv:
 
         target_idx = 0
         self.plant.update_target(target_positions[target_idx])
-        target_is_active = True
+        self.plant.enable_target()
 
         hand_position = self.plant.get_hand_pos()
 
@@ -147,9 +150,15 @@ class SequentialReachingEnv:
             if render:
                 self.plant.render()
 
-            context, feedback = self.plant.get_obs()
-            obs = np.concatenate([context, feedback])
-            action = rnn.step(obs)
+            tgt_pos = self.plant.get_target_pos()
+            tgt_obs = self.target_encoder.encode(tgt_pos[0], tgt_pos[1]).flatten()
+            tgt_obs *= 1 if self.plant.target_is_active else 0
+
+            len_obs = self.plant.get_len_obs()
+            vel_obs = self.plant.get_vel_obs()
+            frc_obs = self.plant.get_frc_obs()
+
+            action = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
             self.plant.step(action)
 
             hand_position = self.plant.get_hand_pos()
@@ -173,7 +182,7 @@ class SequentialReachingEnv:
             if log:
                 self.log(
                     time=self.plant.data.time,
-                    sensors=feedback,
+                    sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
                     target_position=target_position,
                     hand_position=hand_position,
                     distance=distance,

@@ -35,27 +35,18 @@ data = mujoco.MjData(model)
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 3600 * 5  # seconds
+dur2run = 3600 * 10  # seconds
 time_data = []
 hand_position_data = {
     "x": [],
     "y": [],
     "z": [],
 }
-sensor_data = {
-    "deltoid_length": [],
-    "latissimus_length": [],
-    "biceps_length": [],
-    "triceps_length": [],
-    "deltoid_velocity": [],
-    "latissimus_velocity": [],
-    "biceps_velocity": [],
-    "triceps_velocity": [],
-    "deltoid_force": [],
-    "latissimus_force": [],
-    "biceps_force": [],
-    "triceps_force": [],
-}
+
+MUSCLES = ["deltoid", "latissimus", "biceps", "triceps"]
+MEASUREMENTS = ["length", "velocity", "force"]
+sensor_keys = [f"{muscle}_{measure}" for measure in MEASUREMENTS for muscle in MUSCLES]
+sensor_data = {key: [] for key in sensor_keys}
 
 next_update_time = 0
 
@@ -69,7 +60,7 @@ while data.time < dur2run:
         data.ctrl[:] = np.clip(
             np.random.normal(size=num_actuators, loc=0.5, scale=0.5), 0, 1
         )
-        next_update_time += np.random.exponential(scale=1.5)
+        next_update_time += np.random.exponential(scale=3)
 
     # Store time data
     time_data.append(data.time)
@@ -246,7 +237,7 @@ plt.imshow(
 )
 plt.gca().invert_xaxis()
 plt.gca().invert_yaxis()
-plt.axis('image')
+plt.axis("image")
 plt.show()
 
 reachable_image = counts2d > 0
@@ -263,7 +254,7 @@ plt.gca().invert_yaxis()
 plt.title("All Reachable Positions")
 plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
-plt.axis('image')
+plt.axis("image")
 plt.show()
 
 # Find contours of the binary image
@@ -296,7 +287,7 @@ plt.gca().invert_yaxis()
 plt.title("Reconstructed Binary Image from Contours")
 plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
-plt.axis('image')
+plt.axis("image")
 plt.show()
 
 num_countour_pixels = contours_image.astype(int).sum()
@@ -329,7 +320,7 @@ plt.gca().invert_yaxis()
 plt.title("Binary Image with 80% Pixels Zeroed Out")
 plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
-plt.axis('image')
+plt.axis("image")
 plt.show()
 
 # Compute the union of zeroed_image and contour_image
@@ -347,7 +338,7 @@ plt.gca().invert_yaxis()
 plt.title("Final Image: Union of Zeroed and Contour Images")
 plt.xlabel("x (a.u.)")
 plt.ylabel("y (a.u.)")
-plt.axis('image')
+plt.axis("image")
 plt.show()
 
 candidate_idcs = np.argwhere(candidate_targets_image)

@@ -26,7 +26,8 @@ class SimpleGolgiTendonOrgan(GolgiTendonOrgan):
     """A simple Golgi tendon organ model"""
 
     def step(self):
-        self.force = self.data.ctrl[self.muscle_id]  * self.kf
+        # self.force = self.data.ctrl[self.muscle_id]  * self.kf
+        self.force = self.data.sensordata[self.force_sensor_id] * self.kf
 
     def compute_afferents(self):
         Ib_afferent = self.force

@@ -10,8 +10,9 @@
 """
 import pickle
 import matplotlib.pyplot as plt
-from plants import SequentialReacher
-from environments import SequentialReachingEnv
+from plants import *
+from encoders import *
+from environments import *
 from networks import *
 from utils import *
 from cmaes import CMA
@@ -32,20 +33,36 @@ if __name__ == "__main__":
     # Initialize the plant
     reacher = SequentialReacher(plant_xml_file="arm.xml")
 
+    # Initialize the target encoder
+    target_encoder = GridTargetEncoder(
+        grid_size=8,
+        x_bounds=reacher.get_workspace_bounds()[0],
+        y_bounds=reacher.get_workspace_bounds()[1],
+        sigma=0.25,
+    )
+
+    print(target_encoder.size)
+    print(reacher.num_sensors_len)
+    print(reacher.num_sensors_vel)
+    print(reacher.num_sensors_frc)
+    print(reacher.num_actuators)
+
     # Specify policy
-    rnn = NeuroMuscularRNN(
-        input_size_target=3,
-        input_size_proprioceptive=reacher.num_sensors,
-        input_size_efferent=reacher.num_actuators,
+    nmrnn = NeuroMuscularRNN(
+        input_size_tgt=target_encoder.size,
+        input_size_len=reacher.num_sensors_len,
+        input_size_vel=reacher.num_sensors_vel,
+        input_size_frc=reacher.num_sensors_frc,
         hidden_size=25,
-        output_size=reacher.num_actuators * 3,
+        output_size=reacher.num_actuators,
         activation=tanh,
-        alpha=reacher.model.opt.timestep / 10e-3,
+        tau=reacher.model.opt.timestep / 10e-3,
     )
 
     # Initialize the environment/task
     env = SequentialReachingEnv(
         plant=reacher,
+        target_encoder=target_encoder,
         target_duration_distro={"mean": 3, "min": 1, "max": 6},
         iti_distro={"mean": 1, "min": 0, "max": 3},
         num_targets=10,
@@ -58,20 +75,21 @@ if __name__ == "__main__":
     )
 
     # Optimization setup
-    optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
+    print(nmrnn.get_params().shape)
+    optimizer = CMA(mean=nmrnn.get_params(), sigma=1.3)
     num_generations = 10000
     fitnesses = []
     for gg in range(num_generations):
         solutions = []
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
-            fitness = -env.evaluate(rnn.from_params(x), seed=gg)
+            fitness = -env.evaluate(nmrnn.from_params(x), seed=gg)
             solutions.append((x, fitness))
             fitnesses.append((gg, ii, fitness))
             print(f"#{gg}.{ii} {fitness}")
         optimizer.tell(solutions)
 
-        best_rnn = rnn.from_params(optimizer.mean)
+        best_rnn = nmrnn.from_params(optimizer.mean)
         if gg % 10 == 0:
             env.evaluate(best_rnn, seed=0, render=True, log=True)
             env.plot()

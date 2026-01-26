@@ -4,7 +4,7 @@ from xml.parsers.expat import model
 import mujoco
 import mujoco.viewer
 from utils import *
-
+from collections import Counter
 
 class SequentialReacher:
     def __init__(self, plant_xml_file="arm.xml"):
@@ -16,6 +16,7 @@ class SequentialReacher:
         self.data = mujoco.MjData(self.model)
         self.num_sensors = self.model.nsensor
         self.num_actuators = self.model.nu
+        self.parse_sensors()
         self.viewer = None
 
         # Get target ID
@@ -51,6 +52,21 @@ class SequentialReacher:
         with open(grid_positions_path, "rb") as f:
             self.grid_positions = pickle.load(f)
 
+    def parse_sensors(self):
+        self.sensor_ids_len = []
+        self.sensor_ids_vel = []
+        self.sensor_ids_frc = []
+        for i in range(self.num_sensors):
+            if self.model.sensor_type[i] == mujoco.mjtSensor.mjSENS_ACTUATORPOS:
+                self.sensor_ids_len.append(i)
+            if self.model.sensor_type[i] == mujoco.mjtSensor.mjSENS_ACTUATORVEL:
+                self.sensor_ids_vel.append(i)
+            if self.model.sensor_type[i] == mujoco.mjtSensor.mjSENS_ACTUATORFRC:
+                self.sensor_ids_frc.append(i)
+        self.num_sensors_len = len(self.sensor_ids_len)
+        self.num_sensors_vel = len(self.sensor_ids_vel)
+        self.num_sensors_frc = len(self.sensor_ids_frc)
+
     def randomize_configuration(self):
         """Randomize the configuration of the arm"""
         for i in range(self.model.nq):
@@ -77,8 +93,6 @@ class SequentialReacher:
 
     def update_nail(self, position):
         """Update the position of the nail"""
-        # self.randomize_configuration()
-        # self.solve_ik(position)
         self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
         self.data.mocap_pos[1] = position  # self.get_hand_pos()
@@ -91,20 +105,32 @@ class SequentialReacher:
         mujoco.mj_resetData(self.model, self.data)
         mujoco.mj_forward(self.model, self.data)
 
-    def get_obs(self):
-        target_position = self.data.mocap_pos[0].copy()
-        sensor_data = self.data.sensordata.copy()
-        norm_target_position = zscore(
-            target_position,
-            self.hand_position_stats["mean"].values,
-            self.hand_position_stats["std"].values,
+    def get_workspace_bounds(self):
+        min_vals = self.hand_position_stats["min"].values
+        max_vals = self.hand_position_stats["max"].values
+        x_range = (min_vals[0], max_vals[0])
+        y_range = (min_vals[1], max_vals[1])
+        return (x_range, y_range)
+
+    def get_target_pos(self):
+        return self.data.mocap_pos[0].copy()
+
+    def get_len_obs(self):
+        return self.get_sensor_obs(self.sensor_ids_len)
+    
+    def get_vel_obs(self):
+        return self.get_sensor_obs(self.sensor_ids_vel)
+    
+    def get_frc_obs(self):
+        return self.get_sensor_obs(self.sensor_ids_frc)
+
+    def get_sensor_obs(self, sensor_ids):
+        sensor_obs = zscore(
+            self.data.sensordata[sensor_ids].copy(),
+            self.sensor_stats["mean"].values[sensor_ids],
+            self.sensor_stats["std"].values[sensor_ids],
         )
-        norm_sensor_data = zscore(
-            sensor_data,
-            self.sensor_stats["mean"].values,
-            self.sensor_stats["std"].values,
-        )
-        return norm_target_position, norm_sensor_data
+        return sensor_obs
 
     def get_hand_pos(self):
         return self.data.geom_xpos[self.hand_id].copy()

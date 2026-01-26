@@ -53,6 +53,7 @@ class StretchLogger:
         "spindle_Ia",
         "spindle_II",
         "gto_Ib",
+        "motor_commands",
     ]
 
     def __init__(self):
@@ -127,7 +128,7 @@ class StretchExperiment:
             self.viewer.cam.azimuth = 180
             self.viewer.cam.elevation = -10
             self.viewer.sync()
-            
+
         while self.data.time < duration:
 
             # Get current instruction
@@ -140,14 +141,14 @@ class StretchExperiment:
             gamma_dynamic = current_step.gamma_dynamic
 
             # stretch reflex parameters
-            force = self.activation_law.step(
+            motor_commands = self.activation_law.step(
                 alpha_drive,
                 gamma_static,
                 gamma_dynamic,
             )
 
             # Apply muscle force
-            self.data.ctrl[self.muscle_id] = force
+            self.data.ctrl[self.muscle_id] = motor_commands
 
             # Compute spindle afferent signals
             spindle_Ia, spindle_II = self.activation_law.spindle.compute_afferents()
@@ -173,6 +174,7 @@ class StretchExperiment:
                 spindle_Ia=spindle_Ia,
                 spindle_II=spindle_II,
                 gto_Ib=gto_Ib,
+                motor_commands=motor_commands,
             )
 
             # Render if needed
@@ -224,7 +226,7 @@ data = mujoco.MjData(model)
 
 # Create and run experiment
 spindle = SimpleSpindle(model, data)
-golgi_tendon_organ = SimpleGolgiTendonOrgan(model, data, kf=0.5)
+golgi_tendon_organ = SimpleGolgiTendonOrgan(model, data, kf=0)
 lambda_model = FeldmanActivationLaw(
     model,
     data,
@@ -323,6 +325,12 @@ axes[idx].plot(df["time"], df["gto_Ib"], color="black")
 axes[idx].set_title("Golgi Tendon Organ Afferent Ib")
 axes[idx].set_ylabel("Firing Rate (a.u.)")
 axes[idx].set_xlabel("Time (s)")
+idx += 1
+
+axes[idx].plot(df["time"], df["motor_commands"], color="black")
+axes[idx].set_title("Motor Commands (α-MN activity)")
+axes[idx].set_ylabel("Activation (a.u.)")
+axes[idx].set_xlabel("Time (s)")
 
 for ax in axes.flat:
     ax.spines["top"].set_visible(False)
@@ -333,13 +341,65 @@ plt.tight_layout()
 plt.show()
 
 # %%
+"""
+.########....###....##.....##..######.
+....##......##.##...##.....##.##....##
+....##.....##...##..##.....##.##......
+....##....##.....##.##.....##..######.
+....##....#########.##.....##.......##
+....##....##.....##.##.....##.##....##
+....##....##.....##..#######...######.
+"""
+
+protocol = (
+    StretchProtocol()
+    .add_cycle(stretch_speed=0, alpha_drive=0, duration=0.01)
+    .add_cycle(stretch_speed=0, alpha_drive=2, duration=0.01)
+    .add_cycle(stretch_speed=0, alpha_drive=0, duration=0.01)
+)
+
+# Load model and data
+os.chdir(os.path.dirname(__file__))
+MODEL_XML_PATH = "../mujoco/muscle.xml"
+model = mujoco.MjModel.from_xml_path(MODEL_XML_PATH)
+data = mujoco.MjData(model)
+
+# Create and run experiment
+spindle = SimpleSpindle(model, data)
+gto = SimpleGolgiTendonOrgan(model, data, kf=0)
+stretch_reflex = FeldmanActivationLaw(
+    model,
+    data,
+    spindle,
+    gto,
+    lambda_extra=0.5,
+)
+experiment = StretchExperiment(model, data, protocol, stretch_reflex)
+
+experiment.run(render=False)
+df = experiment.log.to_dataframe()
 
 plt.figure(figsize=(8, 6))
-plt.scatter(df["length"], df["force"], c=df["time"], cmap="viridis", s=10, alpha=0.6)
-plt.colorbar(label="Time (s)")
-plt.xlabel("Muscle Length (a.u.)")
-plt.ylabel("Muscle Force (a.u.)")
-plt.title("Muscle Force vs Length")
+(t_min, t_max) = (0, .3)
+df_subset = df[(df["time"] >= t_min) & (df["time"] <= t_max)]
+plt.plot(
+    df_subset["time"],
+    -df_subset["force"],
+    label="Muscle Force",
+    color="blue",
+    alpha=0.7,
+)
+plt.plot(
+    df_subset["time"],
+    df_subset["motor_commands"],
+    label="Motor Commands",
+    color="red",
+    alpha=0.7,
+)
+plt.xlabel("Time (s)")
+plt.ylabel("Amplitude (a.u.)")
+plt.title("Muscle Force and Motor Commands Over Time")
+plt.legend()
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -470,7 +530,6 @@ protocol = (
     .add_cycle(stretch_speed=0.1, alpha_drive=3.8, gamma_static=0.0, duration=4)
     .add_cycle(stretch_speed=0.1, alpha_drive=3.9, gamma_static=0.0, duration=4)
     .add_cycle(stretch_speed=0.1, alpha_drive=4.0, gamma_static=0.0, duration=4)
-
 )
 
 # Load model and data
@@ -504,7 +563,7 @@ for target_length in target_lengths:
     # Find data points near the target length
     mask = (np.abs(df["length"] - target_length) < tolerance) & (df["velocity"] >= 0)
     df_filtered = df[mask].copy()
-    
+
     if len(df_filtered) > 0:
         # Sort by alpha_drive for cleaner plotting
         df_filtered = df_filtered.sort_values("alpha_drive")
@@ -514,7 +573,7 @@ for target_length in target_lengths:
             marker="o",
             linestyle="none",
             label=f"Length ≈ {target_length}",
-            alpha=0.7
+            alpha=0.7,
         )
 
 plt.xlabel(r"$\alpha$ drive (a.u.)")
@@ -607,9 +666,8 @@ plt.show()
 .##.....##....##....##....##....##....##.......##....##...##..##....##..##..##....##
 .##.....##....##.....######.....##....########.##.....##.####..######..####..######.
 """
-protocol = (
-    StretchProtocol()
-    .add_cycle(stretch_speed=0.1, gamma_static=.75, gamma_dynamic=0.25, duration=4)
+protocol = StretchProtocol().add_cycle(
+    stretch_speed=0.1, gamma_static=0.75, gamma_dynamic=0.25, duration=4
 )
 
 # Load model and data

@@ -1,326 +1,162 @@
-import copy
 from utils import *
-
-
-class RNN:
-    def __init__(self, input_size, hidden_size, output_size, activation, alpha):
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.activation = activation
-        self.alpha = alpha
-        if activation == relu:
-            self.init_fcn = he_init
-        else:
-            self.init_fcn = xavier_init
-        self.init_weights()
-        self.init_biases()
-        self.init_state()
-        self.num_params = len(self.get_params())
-
-    def __eq__(self, other):
-        if isinstance(other, RNN):
-            return all(self.get_params() == other.get_params())
-        return False
-
-    def init_weights(self):
-        self.W_in = self.init_fcn(n_in=self.input_size, n_out=self.hidden_size)
-        self.W_h = self.init_fcn(n_in=self.hidden_size, n_out=self.hidden_size)
-        self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
-
-    def init_biases(self):
-        self.b_h = np.zeros(self.hidden_size)
-        self.b_out = np.zeros(self.output_size)
-
-    def init_state(self):
-        """Reset hidden state between episodes"""
-        self.h = np.zeros(self.hidden_size)
-        self.out = np.zeros(self.output_size)
-
-    def step(self, obs):
-        """Compute one RNN step"""
-        self.h = (1 - self.alpha) * self.h + self.alpha * self.activation(
-            self.W_in @ obs + self.W_h @ self.h + self.b_h
-        )
-        self.out = (1 - self.alpha) * self.out + self.alpha * logistic(
-            self.W_out @ self.h + self.b_out
-        )
-        return self.out
-
-    def get_params(self):
-        return np.concatenate(
-            [
-                self.W_in.flatten(),
-                self.W_h.flatten(),
-                self.W_out.flatten(),
-                self.b_h.flatten(),
-                self.b_out.flatten(),
-            ]
-        )
-
-    def set_params(self, params):
-        idx = 0
-        W_in_size = self.input_size * self.hidden_size
-        W_h_size = self.hidden_size * self.hidden_size
-        W_out_size = self.hidden_size * self.output_size
-
-        self.W_in = params[idx : idx + W_in_size].reshape(
-            self.input_size, self.hidden_size
-        )
-        idx += W_in_size
-        self.W_h = params[idx : idx + W_h_size].reshape(
-            self.hidden_size, self.hidden_size
-        )
-        idx += W_h_size
-        self.W_out = params[idx : idx + W_out_size].reshape(
-            self.hidden_size, self.output_size
-        )
-        idx += W_out_size
-
-        self.b_h = params[idx : idx + self.hidden_size]
-        idx += self.hidden_size
-        self.b_out = params[idx : idx + self.output_size]
-
-    def from_params(self, params):
-        """Return a new RNN with weights and biases from flattened parameters."""
-        idx = 0
-
-        def extract(shape):
-            nonlocal idx
-            size = np.prod(shape)
-            param = params[idx : idx + size].reshape(shape)
-            idx += size
-            return param
-
-        new_rnn = copy.deepcopy(self)
-        new_rnn.W_in = extract((self.hidden_size, self.input_size))
-        new_rnn.W_h = extract((self.hidden_size, self.hidden_size))
-        new_rnn.W_out = extract((self.output_size, self.hidden_size))
-        new_rnn.b_h = extract((self.hidden_size,))
-        new_rnn.b_out = extract((self.output_size,))
-        return new_rnn
-
-    @staticmethod
-    def from_params_static(
-        params, input_size, hidden_size, output_size, activation, alpha
-    ):
-        """Create a new RNN from flattened parameters."""
-        idx = 0
-
-        def extract(shape):
-            nonlocal idx
-            size = np.prod(shape)
-            param = params[idx : idx + size].reshape(shape)
-            idx += size
-            return param
-
-        new_rnn = RNN(input_size, hidden_size, output_size, activation, alpha)
-        new_rnn.W_in = extract((input_size, hidden_size))
-        new_rnn.W_h = extract((hidden_size, hidden_size))
-        new_rnn.W_out = extract((hidden_size, output_size))
-        new_rnn.b_h = extract((hidden_size,))
-        new_rnn.b_out = extract((output_size,))
-        return new_rnn
-
-    @staticmethod
-    def recombine(p1, p2):
-        child = RNN(
-            p1.input_size,
-            p1.hidden_size,
-            p1.output_size,
-            p1.activation,
-            p1.alpha,
-        )
-        child.W_in = RNN.recombine_matrices(p1.W_in, p2.W_in)
-        child.W_h = RNN.recombine_matrices(p1.W_h, p2.W_h)
-        child.W_out = RNN.recombine_matrices(p1.W_out, p2.W_out)
-        child.b_h = RNN.recombine_matrices(p1.b_h, p2.b_h)
-        child.b_out = RNN.recombine_matrices(p1.b_out, p2.b_out)
-        return child
-
-    @staticmethod
-    def recombine_matrices(A, B):
-        mask = np.random.rand(*A.shape) > 0.5
-        return np.where(mask, A, B)
-
-    def mutate(self, rate):
-        mutant = copy.deepcopy(self)
-        mutant.W_in += self.init_fcn(mutant.input_size, mutant.hidden_size) * rate
-        mutant.W_h += self.init_fcn(mutant.hidden_size, mutant.hidden_size) * rate
-        mutant.W_out += self.init_fcn(mutant.hidden_size, mutant.output_size) * rate
-        mutant.b_h += np.random.randn(mutant.hidden_size) * rate
-        mutant.b_out += np.random.randn(mutant.output_size) * rate
-        return mutant
 
 
 class NeuroMuscularRNN:
     def __init__(
         self,
-        input_size_target,
-        input_size_proprioceptive,
-        input_size_efferent,
+        input_size_tgt,
+        input_size_len,
+        input_size_vel,
+        input_size_frc,
         hidden_size,
-        reflex_size,
         output_size,
         activation,
-        alpha,
+        tau,
     ):
-        self.input_size_target = input_size_target
-        self.input_size_proprioceptive = input_size_proprioceptive
-        self.input_size_efferent = input_size_efferent
+        self.input_size_tgt = input_size_tgt
+        self.input_size_len = input_size_len
+        self.input_size_vel = input_size_vel
+        self.input_size_frc = input_size_frc
         self.hidden_size = hidden_size
-        self.reflex_size = reflex_size
         self.output_size = output_size
         self.activation = activation
-        self.alpha = alpha
+        self.tau = tau
+        self.one_minus_tau = 1 - self.tau
+
+        self._init_weight_specs()
+
         if activation == relu:
             self.init_fcn = he_init
         else:
             self.init_fcn = xavier_init
+
         self.init_weights()
-        self.init_biases()
         self.init_state()
-        self.num_params = len(self.get_params())
+        self.num_params = sum(size for _, size, _ in self._weight_specs)
+
+    def _spec(self, name, in_size, out_size):
+        return (name, in_size * out_size, (out_size, in_size))
+
+    def _init_weight_specs(self):
+        self._weight_specs = [
+            self._spec("W_tgt2h", self.input_size_tgt, self.hidden_size),
+            self._spec("W_tgt2gs", self.input_size_tgt, self.output_size),
+            self._spec("W_tgt2gd", self.input_size_tgt, self.output_size),
+            self._spec("W_tgt2a", self.input_size_tgt, self.output_size),
+            self._spec("W_len2h", self.input_size_len, self.hidden_size),
+            self._spec("W_vel2h", self.input_size_vel, self.hidden_size),
+            self._spec("W_frc2h", self.input_size_frc, self.hidden_size),
+            self._spec("W_h2h", self.hidden_size, self.hidden_size),
+            self._spec("W_h2gs", self.hidden_size, self.output_size),
+            self._spec("W_h2gd", self.hidden_size, self.output_size),
+            self._spec("W_len2a", self.input_size_len, self.output_size),
+            self._spec("W_vel2a", self.input_size_vel, self.output_size),
+            self._spec("W_h2a", self.hidden_size, self.output_size),
+            self._spec("W_a2h", self.output_size, self.hidden_size),
+        ]
 
     def __eq__(self, other):
-        if isinstance(other, NeuroMuscularRNN):
-            return all(self.get_params() == other.get_params())
-        return False
+        if not isinstance(other, NeuroMuscularRNN):
+            return False
+
+        attrs = [
+            "input_size_tgt",
+            "input_size_len",
+            "input_size_vel",
+            "input_size_frc",
+            "hidden_size",
+            "output_size",
+            "tau",
+        ]
+        if any(getattr(self, a) != getattr(other, a) for a in attrs):
+            return False
+
+        return np.allclose(self.get_params(), other.get_params())
 
     def init_weights(self):
-        self.W_in_t = self.init_fcn(n_in=self.input_size_target, n_out=self.hidden_size)
-        self.W_in_p = self.init_fcn(
-            n_in=self.input_size_proprioceptive, n_out=self.hidden_size
-        )
-        self.W_in_e = self.init_fcn(
-            n_in=self.input_size_efferent, n_out=self.hidden_size
-        )
-        self.W_h = self.init_fcn(n_in=self.hidden_size, n_out=self.hidden_size)
-        self.W_r = self.init_fcn(n_in=self.reflex_size, n_out=self.hidden_size)
-        self.W_out = self.init_fcn(n_in=self.hidden_size, n_out=self.output_size)
-
-    def init_biases(self):
-        self.b_h = np.zeros(self.hidden_size)
-        self.b_out = np.zeros(self.output_size)
+        """Initialize all weight matrices"""
+        for name, _, shape in self._weight_specs:
+            setattr(self, name, self.init_fcn(n_in=shape[0], n_out=shape[1]))
 
     def init_state(self):
-        """Reset hidden state between episodes"""
+        """Initialize hidden states"""
         self.h = np.zeros(self.hidden_size)
-        self.out = np.zeros(self.output_size)
+        self.gs = np.zeros(self.output_size)
+        self.gd = np.zeros(self.output_size)
+        self.a = np.zeros(self.output_size)
 
-    def step(self, obs):
+    def step(self, tgt_obs, len_obs, vel_obs, frc_obs):
         """Compute one RNN step"""
-        self.h = (1 - self.alpha) * self.h + self.alpha * self.activation(
-            self.W_in @ obs + self.W_h @ self.h + self.b_h
+
+        # Compute inputs to hidden layer
+        h_input = (
+            self.W_tgt2h @ tgt_obs
+            + self.W_len2h @ len_obs
+            + self.W_vel2h @ vel_obs
+            + self.W_frc2h @ frc_obs
+            + self.W_h2h @ self.h
+            + self.W_a2h @ self.a
         )
-        self.out = (1 - self.alpha) * self.out + self.alpha * logistic(
-            self.W_out @ self.h + self.b_out
+        self.h = self.one_minus_tau * self.h + self.tau * self.activation(h_input)
+
+        # Compute inputs to gamma static and dynamic motoneurons
+        gs_input = self.W_tgt2gs @ tgt_obs + self.W_h2gs @ self.h
+        gd_input = self.W_tgt2gd @ tgt_obs + self.W_h2gd @ self.h
+
+        # Compute inputs to alpha motoneurons
+        a_input = (
+            self.W_tgt2a @ tgt_obs
+            + self.W_h2a @ self.h
+            + self.W_len2a @ len_obs
+            + self.W_vel2a @ vel_obs
         )
-        return self.out
+
+        # Compute lambda (dynamic threshold for alpha-motoneuron recruitment)
+        lambda_ = 1.0 - self.gs + a_input - self.gd * vel_obs
+
+        # Update gamma static and dynamic motoneurons
+        self.gs = self.one_minus_tau * self.gs + self.tau * self.activation(gs_input)
+        self.gd = self.one_minus_tau * self.gd + self.tau * self.activation(gd_input)
+
+        # Update alpha motoneurons
+        self.a = self.one_minus_tau * self.a + self.tau * np.maximum(
+            0, len_obs - lambda_
+        )
+
+        return self.a
 
     def get_params(self):
+        """Get flattened parameter vector"""
         return np.concatenate(
-            [
-                self.W_in.flatten(),
-                self.W_h.flatten(),
-                self.W_out.flatten(),
-                self.b_h.flatten(),
-                self.b_out.flatten(),
-            ]
+            [getattr(self, name).flatten() for name, _, _ in self._weight_specs]
         )
 
     def set_params(self, params):
+        """Set parameters from flattened vector"""
         idx = 0
-        W_in_size = self.input_size_target * self.hidden_size
-        W_h_size = self.hidden_size * self.hidden_size
-        W_out_size = self.hidden_size * self.output_size
-
-        self.W_in = params[idx : idx + W_in_size].reshape(
-            self.input_size_target, self.hidden_size
-        )
-        idx += W_in_size
-        self.W_h = params[idx : idx + W_h_size].reshape(
-            self.hidden_size, self.hidden_size
-        )
-        idx += W_h_size
-        self.W_out = params[idx : idx + W_out_size].reshape(
-            self.hidden_size, self.output_size
-        )
-        idx += W_out_size
-
-        self.b_h = params[idx : idx + self.hidden_size]
-        idx += self.hidden_size
-        self.b_out = params[idx : idx + self.output_size]
+        for name, size, shape in self._weight_specs:
+            setattr(self, name, params[idx : idx + size].reshape(shape))
+            idx += size
 
     def from_params(self, params):
-        """Return a new RNN with weights and biases from flattened parameters."""
-        idx = 0
-
-        def extract(shape):
-            nonlocal idx
-            size = np.prod(shape)
-            param = params[idx : idx + size].reshape(shape)
-            idx += size
-            return param
-
-        new_rnn = copy.deepcopy(self)
-        new_rnn.W_in = extract((self.hidden_size, self.input_size_target))
-        new_rnn.W_h = extract((self.hidden_size, self.hidden_size))
-        new_rnn.W_out = extract((self.output_size, self.hidden_size))
-        new_rnn.b_h = extract((self.hidden_size,))
-        new_rnn.b_out = extract((self.output_size,))
-        return new_rnn
-
-    @staticmethod
-    def from_params_static(
-        params, input_size, hidden_size, output_size, activation, alpha
-    ):
-        """Create a new RNN from flattened parameters."""
-        idx = 0
-
-        def extract(shape):
-            nonlocal idx
-            size = np.prod(shape)
-            param = params[idx : idx + size].reshape(shape)
-            idx += size
-            return param
-
-        new_rnn = RNN(input_size, hidden_size, output_size, activation, alpha)
-        new_rnn.W_in = extract((input_size, hidden_size))
-        new_rnn.W_h = extract((hidden_size, hidden_size))
-        new_rnn.W_out = extract((hidden_size, output_size))
-        new_rnn.b_h = extract((hidden_size,))
-        new_rnn.b_out = extract((output_size,))
-        return new_rnn
-
-    @staticmethod
-    def recombine(p1, p2):
-        child = RNN(
-            p1.input_size,
-            p1.hidden_size,
-            p1.output_size,
-            p1.activation,
-            p1.alpha,
+        """Create new instance with specified parameters"""
+        nmrnn = NeuroMuscularRNN(
+            self.input_size_tgt,
+            self.input_size_len,
+            self.input_size_vel,
+            self.input_size_frc,
+            self.hidden_size,
+            self.output_size,
+            self.activation,
+            self.tau,
         )
-        child.W_in = RNN.recombine_matrices(p1.W_in, p2.W_in)
-        child.W_h = RNN.recombine_matrices(p1.W_h, p2.W_h)
-        child.W_out = RNN.recombine_matrices(p1.W_out, p2.W_out)
-        child.b_h = RNN.recombine_matrices(p1.b_h, p2.b_h)
-        child.b_out = RNN.recombine_matrices(p1.b_out, p2.b_out)
-        return child
+        nmrnn.set_params(params)
+        return nmrnn
 
-    @staticmethod
-    def recombine_matrices(A, B):
-        mask = np.random.rand(*A.shape) > 0.5
-        return np.where(mask, A, B)
+    def copy(self):
+        """Create an independent copy"""
+        return self.from_params(self.get_params())
 
-    def mutate(self, rate):
-        mutant = copy.deepcopy(self)
-        mutant.W_in += (
-            self.init_fcn(mutant.input_size_target, mutant.hidden_size) * rate
-        )
-        mutant.W_h += self.init_fcn(mutant.hidden_size, mutant.hidden_size) * rate
-        mutant.W_out += self.init_fcn(mutant.hidden_size, mutant.output_size) * rate
-        mutant.b_h += np.random.randn(mutant.hidden_size) * rate
-        mutant.b_out += np.random.randn(mutant.output_size) * rate
-        return mutant
+    def reset_state(self):
+        """Reset internal state"""
+        self.init_state()
