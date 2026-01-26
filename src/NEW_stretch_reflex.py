@@ -226,7 +226,7 @@ data = mujoco.MjData(model)
 
 # Create and run experiment
 spindle = SimpleSpindle(model, data)
-golgi_tendon_organ = SimpleGolgiTendonOrgan(model, data, kf=0)
+golgi_tendon_organ = SimpleGolgiTendonOrgan(model, data, kf=0.5)
 lambda_model = FeldmanActivationLaw(
     model,
     data,

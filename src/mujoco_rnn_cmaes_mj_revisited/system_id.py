@@ -50,6 +50,13 @@ sensor_data = {key: [] for key in sensor_keys}
 
 next_update_time = 0
 
+def sparse_random_control(num_actuators, sparsity=0.5):
+    ctrl = np.random.normal(loc=0.5, scale=0.5, size=num_actuators)
+    ctrl = np.clip(ctrl, 0, 1)
+    mask = np.random.rand(num_actuators) > sparsity
+    ctrl = ctrl * mask 
+    return ctrl
+
 # Simulate and save data
 mujoco.mj_resetData(model, data)
 while data.time < dur2run:
@@ -57,10 +64,8 @@ while data.time < dur2run:
 
     # Random actuator control
     if data.time >= next_update_time:
-        data.ctrl[:] = np.clip(
-            np.random.normal(size=num_actuators, loc=0.5, scale=0.5), 0, 1
-        )
-        next_update_time += np.random.exponential(scale=3)
+        data.ctrl[:] = sparse_random_control(num_actuators, sparsity=0.5)
+        next_update_time += np.random.exponential(scale=1.5)
 
     # Store time data
     time_data.append(data.time)

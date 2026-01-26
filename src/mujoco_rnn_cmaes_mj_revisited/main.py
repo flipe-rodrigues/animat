@@ -20,14 +20,16 @@ import numpy as np
 
 # %%
 """
-.##.....##....###....####.##....##
-.###...###...##.##....##..###...##
-.####.####..##...##...##..####..##
-.##.###.##.##.....##..##..##.##.##
-.##.....##.#########..##..##..####
-.##.....##.##.....##..##..##...###
-.##.....##.##.....##.####.##....##
+..######..##.....##....###............########..######.
+.##....##.###...###...##.##...........##.......##....##
+.##.......####.####..##...##..........##.......##......
+.##.......##.###.##.##.....##.#######.######....######.
+.##.......##.....##.#########.........##.............##
+.##....##.##.....##.##.....##.........##.......##....##
+..######..##.....##.##.....##.........########..######.
 """
+
+
 if __name__ == "__main__":
 
     # Initialize the plant
@@ -50,7 +52,7 @@ if __name__ == "__main__":
         hidden_size=25,
         output_size=reacher.num_actuators,
         activation=tanh,
-        tau=reacher.model.opt.timestep / 10e-3,
+        smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
     )
 
     # Initialize the environment/task
@@ -60,6 +62,7 @@ if __name__ == "__main__":
         target_duration_distro={"mean": 3, "min": 1, "max": 6},
         iti_distro={"mean": 1, "min": 0, "max": 3},
         num_targets=10,
+        randomize_gravity=True,
         loss_weights={
             "distance": 1,
             "energy": 0.1,
@@ -90,6 +93,60 @@ if __name__ == "__main__":
             file = f"../../models/optimizer_gen_{gg}_cmaesv2.pkl"
             with open(file, "wb") as f:
                 pickle.dump(optimizer, f)
+
+# %%
+"""
+.########..####..######..########.####.##.......##..........###....########.####..#######..##....##
+.##.....##..##..##....##....##.....##..##.......##.........##.##......##.....##..##.....##.###...##
+.##.....##..##..##..........##.....##..##.......##........##...##.....##.....##..##.....##.####..##
+.##.....##..##...######.....##.....##..##.......##.......##.....##....##.....##..##.....##.##.##.##
+.##.....##..##........##....##.....##..##.......##.......#########....##.....##..##.....##.##..####
+.##.....##..##..##....##....##.....##..##.......##.......##.....##....##.....##..##.....##.##...###
+.########..####..######.....##....####.########.########.##.....##....##....####..#######..##....##
+"""
+from rl_distillation import *
+
+reacher = SequentialReacher(plant_xml_file="arm.xml")
+target_encoder = GridTargetEncoder(
+    grid_size=8,
+    x_bounds=reacher.get_workspace_bounds()[0],
+    y_bounds=reacher.get_workspace_bounds()[1],
+    sigma=0.25,
+)
+env = SequentialReachingEnv(
+    plant=reacher,
+    target_encoder=target_encoder,
+    target_duration_distro={"mean": 3, "min": 1, "max": 6},
+    iti_distro={"mean": 1, "min": 0, "max": 3},
+    num_targets=10,
+    randomize_gravity=True,
+    loss_weights={
+        "distance": 1,
+        "energy": 0.1,
+        "ridge": 0,
+        "lasso": 0,
+    },
+)
+rnn = NeuroMuscularRNN(
+    input_size_tgt=target_encoder.size,
+    input_size_len=reacher.num_sensors_len,
+    input_size_vel=reacher.num_sensors_vel,
+    input_size_frc=reacher.num_sensors_frc,
+    hidden_size=25,
+    output_size=reacher.num_actuators,
+    activation=tanh,
+    smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
+)
+
+rl_config = RLConfig(num_iterations=1000, lr_actor=3e-4, buffer_size=2048)
+distillation_config = DistillationConfig(
+    num_epochs=100, num_trajectories=1000, temperature=1.0
+)
+trained_rnn, teacher, stats = train_with_rl_distillation(
+    env=env, rnn=rnn, rl_config=rl_config, distillation_config=distillation_config
+)
+env.evaluate(trained_rnn, render=True, log=True)
+env.plot()
 
 # %%
 """

@@ -11,7 +11,7 @@ class NeuroMuscularRNN:
         hidden_size,
         output_size,
         activation,
-        tau,
+        smoothing_factor=1.0,
     ):
         self.input_size_tgt = input_size_tgt
         self.input_size_len = input_size_len
@@ -20,8 +20,7 @@ class NeuroMuscularRNN:
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.activation = activation
-        self.tau = tau
-        self.one_minus_tau = 1 - self.tau
+        self.smoothing_factor = smoothing_factor
 
         self._init_weight_specs()
 
@@ -66,7 +65,7 @@ class NeuroMuscularRNN:
             "input_size_frc",
             "hidden_size",
             "output_size",
-            "tau",
+            "smoothing_factor",
         ]
         if any(getattr(self, a) != getattr(other, a) for a in attrs):
             return False
@@ -97,7 +96,9 @@ class NeuroMuscularRNN:
             + self.W_h2h @ self.h
             + self.W_a2h @ self.a
         )
-        self.h = self.one_minus_tau * self.h + self.tau * self.activation(h_input)
+        self.h = (
+            1 - self.smoothing_factor
+        ) * self.h + self.smoothing_factor * self.activation(h_input)
 
         # Compute inputs to gamma static and dynamic motoneurons
         gs_input = self.W_tgt2gs @ tgt_obs + self.W_h2gs @ self.h
@@ -112,17 +113,21 @@ class NeuroMuscularRNN:
         )
 
         # Compute lambda (dynamic threshold for alpha-motoneuron recruitment)
-        lambda_ = 1 - self.gs - a_input - self.gd * vel_obs
+        lambda_ = 1.5 - self.gs - a_input - self.gd * vel_obs
 
         # Update gamma static and dynamic motoneurons
-        self.gs = self.one_minus_tau * self.gs + self.tau * self.activation(gs_input)
-        self.gd = self.one_minus_tau * self.gd + self.tau * self.activation(gd_input)
+        self.gs = (
+            1 - self.smoothing_factor
+        ) * self.gs + self.smoothing_factor * self.activation(gs_input)
+        self.gd = (
+            1 - self.smoothing_factor
+        ) * self.gd + self.smoothing_factor * self.activation(gd_input)
 
         # Update alpha motoneurons
-        self.a = self.one_minus_tau * self.a + self.tau * np.maximum(
-            0, len_obs - lambda_
-        )
-
+        self.a = (
+            1 - self.smoothing_factor
+        ) * self.a + self.smoothing_factor * np.maximum(0, len_obs - lambda_)
+        
         return self.a
 
     def get_params(self):
@@ -148,7 +153,7 @@ class NeuroMuscularRNN:
             self.hidden_size,
             self.output_size,
             self.activation,
-            self.tau,
+            self.smoothing_factor,
         )
         rnn.set_params(params)
         return rnn

@@ -8,7 +8,6 @@
 .####.##.....##.##.........#######..##.....##....##.....######.
 """
 
-import pickle
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from plants import SequentialReacher
@@ -36,6 +35,7 @@ class SequentialReachingEnv:
         target_duration_distro,
         iti_distro,
         num_targets,
+        randomize_gravity,
         loss_weights,
     ):
         self.plant = plant
@@ -43,6 +43,7 @@ class SequentialReachingEnv:
         self.target_duration_distro = target_duration_distro
         self.iti_distro = iti_distro
         self.num_targets = num_targets
+        self.randomize_gravity = randomize_gravity
         self.loss_weights = loss_weights
         self.logger = None
 
@@ -62,6 +63,7 @@ class SequentialReachingEnv:
         sensors,
         target_position,
         hand_position,
+        gravity,
         distance,
         energy,
         reward,
@@ -86,6 +88,7 @@ class SequentialReachingEnv:
             }
             self.logger["target_position"] = []
             self.logger["hand_position"] = []
+            self.logger["gravity"] = []
             self.logger["distance"] = []
             self.logger["energy"] = []
             self.logger["reward"] = []
@@ -96,6 +99,7 @@ class SequentialReachingEnv:
             self.logger["sensors"][key].append(sensors[i])
         self.logger["target_position"].append(target_position)
         self.logger["hand_position"].append(hand_position)
+        self.logger["gravity"].append(gravity)
         self.logger["distance"].append(distance)
         self.logger["energy"].append(energy)
         self.logger["reward"].append(reward)
@@ -153,6 +157,8 @@ class SequentialReachingEnv:
                 target_idx < self.num_targets
                 and self.plant.data.time >= target_onset_times[target_idx]
             ):
+                if self.randomize_gravity:
+                    self.plant.randomize_gravity_direction()
                 target_position = target_positions[target_idx]
                 self.plant.update_target(target_position)
                 self.plant.enable_target()
@@ -170,9 +176,9 @@ class SequentialReachingEnv:
             motor_commands = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
             self.plant.step(motor_commands)
 
-            hand_pos = self.plant.get_hand_pos()
+            hand_position = self.plant.get_hand_pos()
             distance = (
-                l2_norm(target_position - hand_pos)
+                l2_norm(target_position - hand_position)
                 if self.plant.target_is_active
                 else 0
             )
@@ -191,7 +197,8 @@ class SequentialReachingEnv:
                     time=self.plant.data.time,
                     sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
                     target_position=target_position,
-                    hand_position=hand_pos,
+                    hand_position=hand_position,
+                    gravity=self.plant.get_gravity(),
                     distance=distance,
                     energy=energy,
                     reward=reward,

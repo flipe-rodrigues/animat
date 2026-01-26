@@ -95,3 +95,13 @@ def action_entropy(action, base=2):
     action = np.clip(action, 1e-10, 1)  # Avoid log(0)
     action_pdf = action / action.sum()
     return -np.sum(action_pdf * np.log(action_pdf) / np.log(base))
+
+
+def alpha_from_tau(tau, dt):
+    """Convert time constant tau to discrete-time alpha parameter."""
+    return 1 - np.exp(-dt / tau)
+
+
+def tau_from_alpha(alpha, dt):
+    """Convert discrete-time alpha parameter to time constant tau."""
+    return -dt / np.log(1 - alpha)

@@ -67,6 +67,15 @@ class SequentialReacher:
         self.num_sensors_vel = len(self.sensor_ids_vel)
         self.num_sensors_frc = len(self.sensor_ids_frc)
 
+    def randomize_gravity_direction(self):
+        """Randomize the direction of gravity while keeping its magnitude constant"""
+        G = np.linalg.norm(self.model.opt.gravity)
+        direction = np.random.randn(3)
+        direction /= np.linalg.norm(direction)
+        g = G * direction
+        self.model.opt.gravity[:] = g
+        mujoco.mj_forward(self.model, self.data)
+
     def randomize_configuration(self):
         """Randomize the configuration of the arm"""
         for i in range(self.model.nq):
@@ -134,6 +143,9 @@ class SequentialReacher:
 
     def get_hand_pos(self):
         return self.data.geom_xpos[self.hand_id].copy()
+
+    def get_gravity(self):
+        return self.model.opt.gravity.copy()
 
     def step(self, muscle_activations):
         self.data.ctrl[:] = muscle_activations
