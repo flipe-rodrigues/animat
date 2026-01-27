@@ -141,25 +141,24 @@ class SequentialReachingEnv:
             ):
                 if self.randomize_gravity:
                     self.plant.randomize_gravity_direction()
-                target_position = target_positions[target_idx]
-                self.plant.update_target(target_position)
+                target_pos = target_positions[target_idx]
+                self.plant.update_target(target_pos)
                 self.plant.enable_target()
 
             # Observations
             tgt_obs = self.target_encoder.encode(
-                x=target_position[0], y=target_position[1]
-            ).flatten()
-            tgt_obs *= 1 if self.plant.target_is_active else 0
+                x=target_pos[0], y=target_pos[1]
+            ).flatten() * (1 if self.plant.target_is_active else 0)
             len_obs = self.plant.get_len_obs()
             vel_obs = self.plant.get_vel_obs()
             frc_obs = self.plant.get_frc_obs()
 
             # Motor commands
-            motor_commands = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
-            self.plant.step(motor_commands)
+            ctrl = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
+            self.plant.step(ctrl)
 
             distance = self.plant.get_distance_to_target()
-            energy = sum(motor_commands**2)
+            energy = sum(ctrl**2)
 
             # Rewards
             distance_reward = -distance * self.loss_weights["distance"]
@@ -172,7 +171,7 @@ class SequentialReachingEnv:
                 self.log(
                     time=self.plant.data.time,
                     sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
-                    target_position=target_position,
+                    target_position=target_pos,
                     hand_position=self.plant.get_hand_pos(),
                     gravity=self.plant.get_gravity(),
                     distance=distance,

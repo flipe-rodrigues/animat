@@ -17,7 +17,7 @@ from networks import NeuroMuscularRNN
 from utils import tanh, alpha_from_tau
 
 # Import optimized workers
-from workers_optimized import (
+from mujoco_rnn_cmaes_mj_revisited.workers import (
     init_worker,
     evaluate_worker,
     cleanup_worker,
@@ -538,7 +538,11 @@ def main():
         randomize_gravity=False,
     )
 
-    rnn_config = RNNConfig()
+    rnn_config = RNNConfig(
+        hidden_size=25,
+        tau=10e-3,
+        activation=tanh,
+    )
 
     # Run training
     train(training_config, env_config, rnn_config)

@@ -160,8 +160,8 @@ class SequentialReacher:
         distance = self.get_distance_to_target()
         return distance <= (hand_radius + target_radius)
 
-    def step(self, muscle_activations):
-        self.data.ctrl[:] = muscle_activations
+    def step(self, ctrl):
+        self.data.ctrl[:] = ctrl
         mujoco.mj_step(self.model, self.data)
 
     def render(self):
