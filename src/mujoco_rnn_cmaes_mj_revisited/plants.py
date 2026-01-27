@@ -6,6 +6,7 @@ import mujoco.viewer
 from utils import *
 from collections import Counter
 
+
 class SequentialReacher:
     def __init__(self, plant_xml_file="arm.xml"):
         """Initialize Mujoco simulation"""
@@ -126,12 +127,17 @@ class SequentialReacher:
 
     def get_len_obs(self):
         return self.get_sensor_obs(self.sensor_ids_len)
-    
+
     def get_vel_obs(self):
         return self.get_sensor_obs(self.sensor_ids_vel)
-    
+
     def get_frc_obs(self):
-        return self.get_sensor_obs(self.sensor_ids_frc)
+        force_obs = zscore(
+            self.data.sensordata[self.sensor_ids_frc].copy(),
+            self.sensor_stats["mean"].values[self.sensor_ids_frc] * 0.0,
+            self.sensor_stats["std"].values[self.sensor_ids_frc],
+        )
+        return force_obs
 
     def get_sensor_obs(self, sensor_ids):
         sensor_obs = zscore(

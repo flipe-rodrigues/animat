@@ -75,13 +75,13 @@ def setup_environment():
 def create_rnn(reacher, target_encoder):
     """Create a standard RNN"""
     rnn = NeuroMuscularRNN(
-        input_size_tgt=target_encoder.size,
-        input_size_len=reacher.num_sensors_len,
-        input_size_vel=reacher.num_sensors_vel,
-        input_size_frc=reacher.num_sensors_frc,
+        target_size=target_encoder.size,
+        length_size=reacher.num_sensors_len,
+        velocity_size=reacher.num_sensors_vel,
+        force_size=reacher.num_sensors_frc,
         hidden_size=25,
         output_size=reacher.num_actuators,
-        activation=tanh,
+        hidden_activation=tanh,
         smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
     )
     return rnn

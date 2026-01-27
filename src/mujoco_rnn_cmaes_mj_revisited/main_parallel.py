@@ -1,9 +1,18 @@
 # %%
+"""
+.####.##.....##.########...#######..########..########..######.
+..##..###...###.##.....##.##.....##.##.....##....##....##....##
+..##..####.####.##.....##.##.....##.##.....##....##....##......
+..##..##.###.##.########..##.....##.########.....##.....######.
+..##..##.....##.##........##.....##.##...##......##..........##
+..##..##.....##.##........##.....##.##....##.....##....##....##
+.####.##.....##.##.........#######..##.....##....##.....######.
+"""
 import pickle
 import time
 import os
 from dataclasses import dataclass, field, asdict
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 import multiprocessing as mp
 from multiprocessing.pool import Pool
 
@@ -14,10 +23,10 @@ from plants import SequentialReacher
 from encoders import GridTargetEncoder
 from environments import SequentialReachingEnv
 from networks import NeuroMuscularRNN
-from utils import tanh, alpha_from_tau
+from utils import relu, tanh, alpha_from_tau
 
 # Import optimized workers
-from mujoco_rnn_cmaes_mj_revisited.workers import (
+from workers import (
     init_worker,
     evaluate_worker,
     cleanup_worker,
@@ -60,6 +69,7 @@ class RNNConfig:
     hidden_size: int = 25
     tau: float = 10e-3
     activation: Callable = tanh
+    use_bias: bool = True
 
 
 @dataclass
@@ -144,6 +154,7 @@ def create_rnn_config(
         "smoothing_factor": alpha_from_tau(
             tau=rnn_config.tau, dt=reacher.model.opt.timestep
         ),
+        "use_bias": rnn_config.use_bias,
     }
 
 
@@ -185,16 +196,17 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
 
     # Create RNN
     rnn = NeuroMuscularRNN(
-        input_size_tgt=target_encoder.size,
-        input_size_len=reacher.num_sensors_len,
-        input_size_vel=reacher.num_sensors_vel,
-        input_size_frc=reacher.num_sensors_frc,
+        target_size=target_encoder.size,
+        length_size=reacher.num_sensors_len,
+        velocity_size=reacher.num_sensors_vel,
+        force_size=reacher.num_sensors_frc,
         hidden_size=rnn_config.hidden_size,
         output_size=reacher.num_actuators,
         activation=rnn_config.activation,
         smoothing_factor=alpha_from_tau(
             tau=rnn_config.tau, dt=reacher.model.opt.timestep
         ),
+        use_bias=rnn_config.use_bias,
     )
 
     # Create evaluation environment
@@ -212,13 +224,13 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
 
 
 """
-.########.########.....###....####.##....##
-....##....##.....##...##.##....##..###...##
-....##....##.....##..##...##...##..####..##
-....##....########..##.....##..##..##.##.##
-....##....##...##...#########..##..##..####
-....##....##....##..##.....##..##..##...###
-....##....##.....##.##.....##.####.##....##
+..######..##.....##....###............########..######.
+.##....##.###...###...##.##...........##.......##....##
+.##.......####.####..##...##..........##.......##......
+.##.......##.###.##.##.....##.#######.######....######.
+.##.......##.....##.#########.........##.............##
+.##....##.##.....##.##.....##.........##.......##....##
+..######..##.....##.##.....##.........########..######.
 """
 
 
@@ -360,6 +372,17 @@ def cleanup_old_checkpoints(checkpoint_dir: str, keep_last_n: int = 5):
             print(f"  → Warning: Could not remove old checkpoint {old_checkpoint}: {e}")
 
 
+"""
+.########.########.....###....####.##....##
+....##....##.....##...##.##....##..###...##
+....##....##.....##..##...##...##..####..##
+....##....########..##.....##..##..##.##.##
+....##....##...##...#########..##..##..####
+....##....##....##..##.....##..##..##...###
+....##....##.....##.##.....##.####.##....##
+"""
+
+
 def train(
     training_config: TrainingConfig,
     env_config: EnvConfig,
@@ -395,7 +418,11 @@ def train(
         start_generation = checkpoint["generation"] + 1
         metrics = checkpoint.get("metrics", PerformanceMetrics())
     else:
-        optimizer = CMA(mean=rnn.get_params(), sigma=training_config.initial_sigma)
+        optimizer = CMA(
+            mean=rnn.get_params(),
+            sigma=training_config.initial_sigma,
+            # bounds=rnn.get_bounds(),
+        )
         start_generation = 0
         metrics = PerformanceMetrics()
 
@@ -410,6 +437,7 @@ def train(
     print(f"Population size: {optimizer.population_size}")
     print(f"Chunk size multiplier: {training_config.chunk_size_multiplier}")
     print(f"Expected speedup: ~{training_config.num_workers}x")
+    print(f"Optimizing {rnn.num_weights} weights and {rnn.num_biases} biases ")
     print("=" * 80)
 
     # Create worker pool with initialization
@@ -459,7 +487,7 @@ def train(
             )
 
             # Periodic evaluation
-            if generation % training_config.eval_interval == 0 and generation > 0:
+            if generation % training_config.eval_interval == 0:
                 evaluate_best_solution(optimizer, rnn, eval_env)
 
             # Save checkpoints
@@ -533,7 +561,7 @@ def main():
     env_config = EnvConfig(
         loss_weights={
             "distance": 1.0,
-            "energy": 0.01,
+            "energy": 0.1,
         },
         randomize_gravity=False,
     )
@@ -542,6 +570,7 @@ def main():
         hidden_size=25,
         tau=10e-3,
         activation=tanh,
+        use_bias=False,
     )
 
     # Run training
