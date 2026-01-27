@@ -63,6 +63,10 @@ if __name__ == "__main__":
         iti_distro={"mean": 1, "min": 0, "max": 3},
         num_targets=10,
         randomize_gravity=True,
+        shaping_functions={
+            "distance": lambda x: x,
+            "energy": lambda x: x,
+        },
         loss_weights={
             "distance": 1,
             "energy": 0.1,

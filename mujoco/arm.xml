@@ -16,7 +16,7 @@
 
   <default>
     <joint stiffness="5" damping="1" />
-    <muscle ctrllimited="true" ctrlrange="0 1" vmax="1.2" fpmax="1.4" timeconst=".01 .04"/>
+    <muscle ctrllimited="true" ctrlrange="0 1" vmax="1.2" fpmax="1.4" timeconst=".01 .04" />
     <geom density="1200" material="arm_mat" />
     <tendon material="tendon_mat" />
   </default>
@@ -78,6 +78,16 @@
         conaffinity="0" rgba="1 1 1 1" />
       <site name="nail1" pos="0 0 0" />
     </body>
+
+    <!-- PENDULUM -->
+    <body name="pendulum_base" pos="0 0.1 .5">
+      <site name="pendulum_site1" pos="0 0 0" size="0.01" />
+    </body>
+    <body name="pendulum_bob" pos="0 0.1 0.25">
+      <joint type="free" />
+      <geom size="0.025" type="sphere" rgba="1 0.66 0 1" />
+      <site name="pendulum_site2" pos="0 0 0" size="0.01" />
+    </body>
   </worldbody>
 
   <equality>
@@ -106,13 +116,18 @@
       <geom geom="radius" />
       <site site="triceps_site2" />
     </spatial>
+
+    <spatial limited="true" range="0 0.25" width="0.001">
+      <site site="pendulum_site1" />
+      <site site="pendulum_site2" />
+    </spatial>
   </tendon>
 
   <actuator>
-    <muscle name="deltoid" tendon="deltoid_tendon" force="100"/>
-    <muscle name="latissimus" tendon="latissimus_tendon" force="100"/>
-    <muscle name="biceps" tendon="biceps_tendon" force="100"/>
-    <muscle name="triceps" tendon="triceps_tendon" force="100"/>
+    <muscle name="deltoid" tendon="deltoid_tendon" force="100" />
+    <muscle name="latissimus" tendon="latissimus_tendon" force="100" />
+    <muscle name="biceps" tendon="biceps_tendon" force="100" />
+    <muscle name="triceps" tendon="triceps_tendon" force="100" />
   </actuator>
 
   <sensor>

@@ -73,7 +73,7 @@ class SequentialReacher:
         direction = np.random.randn(3)
         direction /= np.linalg.norm(direction)
         g = G * direction
-        self.model.opt.gravity[:] = g
+        self.model.opt.gravity = g
         mujoco.mj_forward(self.model, self.data)
 
     def randomize_configuration(self):

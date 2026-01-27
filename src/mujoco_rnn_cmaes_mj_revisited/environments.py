@@ -1,30 +1,13 @@
-"""
-.####.##.....##.########...#######..########..########..######.
-..##..###...###.##.....##.##.....##.##.....##....##....##....##
-..##..####.####.##.....##.##.....##.##.....##....##....##......
-..##..##.###.##.########..##.....##.########.....##.....######.
-..##..##.....##.##........##.....##.##...##......##..........##
-..##..##.....##.##........##.....##.##....##.....##....##....##
-.####.##.....##.##.........#######..##.....##....##.....######.
-"""
-
 import matplotlib.pyplot as plt
+import numpy as np
 from tqdm import tqdm
 from plants import SequentialReacher
 from encoders import *
 from networks import *
 from utils import *
 
-
-"""
-.####.##....##.####.########
-..##..###...##..##.....##...
-..##..####..##..##.....##...
-..##..##.##.##..##.....##...
-..##..##..####..##.....##...
-..##..##...###..##.....##...
-.####.##....##.####....##...
-"""
+MUSCLES = ["deltoid", "latissimus", "biceps", "triceps"]
+SENSORS = ["len", "vel", "frc"]
 
 
 class SequentialReachingEnv:
@@ -37,6 +20,8 @@ class SequentialReachingEnv:
         num_targets,
         randomize_gravity,
         loss_weights,
+        use_potential_shaping=False,  # Enable potential-based shaping
+        gamma=0.99,  # Discount factor for potential shaping
     ):
         self.plant = plant
         self.target_encoder = target_encoder
@@ -47,15 +32,33 @@ class SequentialReachingEnv:
         self.loss_weights = loss_weights
         self.logger = None
 
+        # Potential-based shaping
+        self.use_potential_shaping = use_potential_shaping
+        self.gamma = gamma
+        self.previous_distance = None
+
     """
-    .##........#######...######..
-    .##.......##.....##.##....##.
-    .##.......##.....##.##.......
-    .##.......##.....##.##...####
-    .##.......##.....##.##....##.
-    .##.......##.....##.##....##.
-    .########..#######...######..
+    .##........#######...######....######...########.########.
+    .##.......##.....##.##....##..##....##..##.......##.....##
+    .##.......##.....##.##........##........##.......##.....##
+    .##.......##.....##.##...####.##...####.######...########.
+    .##.......##.....##.##....##..##....##..##.......##...##..
+    .##.......##.....##.##....##..##....##..##.......##....##.
+    .########..#######...######....######...########.##.....##
     """
+
+    def _init_logger(self):
+        self.logger = {
+            "time": [],
+            "sensors": {f"{s}_{t}": [] for s in MUSCLES for t in SENSORS},
+            "target_position": [],
+            "hand_position": [],
+            "gravity": [],
+            "distance": [],
+            "energy": [],
+            "reward": [],
+            "fitness": [],
+        }
 
     def log(
         self,
@@ -70,33 +73,11 @@ class SequentialReachingEnv:
         fitness,
     ):
         if self.logger is None:
-            self.logger = {}
-            self.logger["time"] = []
-            self.logger["sensors"] = {
-                "deltoid_len": [],
-                "latissimus_len": [],
-                "biceps_len": [],
-                "triceps_len": [],
-                "deltoid_vel": [],
-                "latissimus_vel": [],
-                "biceps_vel": [],
-                "triceps_vel": [],
-                "deltoid_frc": [],
-                "latissimus_frc": [],
-                "biceps_frc": [],
-                "triceps_frc": [],
-            }
-            self.logger["target_position"] = []
-            self.logger["hand_position"] = []
-            self.logger["gravity"] = []
-            self.logger["distance"] = []
-            self.logger["energy"] = []
-            self.logger["reward"] = []
-            self.logger["fitness"] = []
+            self._init_logger()
 
         self.logger["time"].append(time)
-        for i, key in enumerate(self.logger["sensors"].keys()):
-            self.logger["sensors"][key].append(sensors[i])
+        for key, value in zip(self.logger["sensors"], sensors):
+            self.logger["sensors"][key].append(value)
         self.logger["target_position"].append(target_position)
         self.logger["hand_position"].append(hand_position)
         self.logger["gravity"].append(gravity)
@@ -121,7 +102,10 @@ class SequentialReachingEnv:
 
         rnn.init_state()
         self.plant.reset()
+        self.plant.disable_target()
+        self.previous_distance = None  # Reset potential shaping
 
+        # Sample targets and durations
         target_positions = self.plant.sample_targets(self.num_targets)
         target_durations = truncated_exponential(
             mu=self.target_duration_distro["mean"],
@@ -149,13 +133,17 @@ class SequentialReachingEnv:
             if render:
                 self.plant.render()
 
+            # Disable target if past offset
             if self.plant.data.time >= target_offset_times[target_idx]:
                 self.plant.disable_target()
                 target_idx += 1
+                self.previous_distance = None  # Reset for next target
 
+            # Enable target if past onset
             if (
                 target_idx < self.num_targets
                 and self.plant.data.time >= target_onset_times[target_idx]
+                and not self.plant.target_is_active
             ):
                 if self.randomize_gravity:
                     self.plant.randomize_gravity_direction()
@@ -163,16 +151,16 @@ class SequentialReachingEnv:
                 self.plant.update_target(target_position)
                 self.plant.enable_target()
 
+            # Observations
             tgt_obs = self.target_encoder.encode(
-                target_position[0], target_position[1]
+                x=target_position[0], y=target_position[1]
             ).flatten()
             tgt_obs *= 1 if self.plant.target_is_active else 0
-
             len_obs = self.plant.get_len_obs()
             vel_obs = self.plant.get_vel_obs()
             frc_obs = self.plant.get_frc_obs()
 
-            # Compute motor commands (i.e., alpha-MN activations)
+            # Motor commands
             motor_commands = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
             self.plant.step(motor_commands)
 
@@ -182,16 +170,16 @@ class SequentialReachingEnv:
                 if self.plant.target_is_active
                 else 0
             )
+
             energy = sum(motor_commands**2)
 
-            reward = -(
-                distance * self.loss_weights["distance"]
-                + energy * self.loss_weights["energy"]
-                + l1_norm(rnn.get_params() * self.loss_weights["ridge"])
-                + l2_norm(rnn.get_params() * self.loss_weights["lasso"])
-            )
+            # Rewards
+            distance_reward = self._compute_distance_reward(distance)
+            energy_reward = self._compute_energy_reward(energy)
+            reward = distance_reward + energy_reward
             total_reward += reward
 
+            # Logging
             if log:
                 self.log(
                     time=self.plant.data.time,
@@ -204,8 +192,29 @@ class SequentialReachingEnv:
                     reward=reward,
                     fitness=total_reward / trial_duration,
                 )
+
         self.plant.close()
         return total_reward / trial_duration
+
+    def _compute_distance_reward(self, distance):
+        """Compute distance-based reward with optional potential shaping"""
+        if self.use_potential_shaping and self.plant.target_is_active:
+            current_potential = -distance
+            if self.previous_distance is not None:
+                prev_potential = -self.previous_distance
+                reward = (
+                    self.gamma * current_potential - prev_potential
+                ) * self.loss_weights["distance"]
+            else:
+                reward = 0.0
+            self.previous_distance = distance
+        else:
+            reward = -distance * self.loss_weights["distance"]
+        return reward
+
+    def _compute_energy_reward(self, energy):
+        """Compute energy-based reward"""
+        return -energy * self.loss_weights["energy"]
 
     """
     .########..##........#######..########
@@ -219,110 +228,49 @@ class SequentialReachingEnv:
 
     def plot(self):
         log = self.logger
+        if log is None:
+            raise RuntimeError("No data logged. Run `evaluate(log=True)` first.")
 
         _, axes = plt.subplots(3, 2, figsize=(10, 10))
 
-        # Targets
+        # Target change lines
         target_onset_idcs = np.where(
             np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
         )[0]
         target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
-        target_onset_times = np.array(
-            [log["time"][target_onset_idx] for target_onset_idx in target_onset_idcs]
-        )
-        for t in target_onset_times:
-            axes[0, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[0, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[1, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[1, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[2, 0].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-            axes[2, 1].axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+        target_onset_times = [log["time"][idx] for idx in target_onset_idcs]
+        self._draw_target_lines(axes, target_onset_times)
 
         linewidth = 1
 
-        # Length
-        axes[0, 0].plot(log["time"], log["sensors"]["deltoid_len"], label="Deltoid")
-        axes[0, 0].plot(
+        # Plot sensors
+        self._plot_sensor_group(
+            axes[0, 0],
             log["time"],
-            log["sensors"]["latissimus_len"],
-            linewidth=linewidth,
-            label="Latissimus",
+            log["sensors"],
+            ["deltoid_len", "latissimus_len", "biceps_len", "triceps_len"],
+            "Length",
         )
-        axes[0, 0].plot(
+        self._plot_sensor_group(
+            axes[0, 1],
             log["time"],
-            log["sensors"]["biceps_len"],
-            linewidth=linewidth,
-            label="Biceps",
+            log["sensors"],
+            ["deltoid_vel", "latissimus_vel", "biceps_vel", "triceps_vel"],
+            "Velocity",
         )
-        axes[0, 0].plot(
-            log["time"],
-            log["sensors"]["triceps_len"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[0, 0].set_title("Length")
-
-        # Velocity
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["deltoid_vel"],
-            linewidth=linewidth,
-            label="Deltoid",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["latissimus_vel"],
-            linewidth=linewidth,
-            label="Latissimus",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["biceps_vel"],
-            linewidth=linewidth,
-            label="Biceps",
-        )
-        axes[0, 1].plot(
-            log["time"],
-            log["sensors"]["triceps_vel"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[0, 1].set_title("Velocity")
         axes[0, 1].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
-        # Force
-        axes[1, 0].plot(
+        self._plot_sensor_group(
+            axes[1, 0],
             log["time"],
-            log["sensors"]["deltoid_frc"],
-            linewidth=linewidth,
-            label="Deltoid",
+            log["sensors"],
+            ["deltoid_frc", "latissimus_frc", "biceps_frc", "triceps_frc"],
+            "Force",
         )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["latissimus_frc"],
-            linewidth=linewidth,
-            label="Latissimus",
-        )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["biceps_frc"],
-            linewidth=linewidth,
-            label="Biceps",
-        )
-        axes[1, 0].plot(
-            log["time"],
-            log["sensors"]["triceps_frc"],
-            linewidth=linewidth,
-            label="Triceps",
-        )
-        axes[1, 0].set_title("Force")
 
         # Distance
         axes[1, 1].plot(
-            log["time"],
-            log["distance"],
-            linewidth=linewidth,
-            label="Distance",
+            log["time"], log["distance"], linewidth=linewidth, label="Distance"
         )
         axes[1, 1].set_title("Distance")
         axes[1, 1].set_ylim([-0.05, 2.05])
@@ -334,20 +282,16 @@ class SequentialReachingEnv:
         axes[2, 0].set_ylim([-0.05, 2.05])
         axes[2, 0].legend()
 
-        # Fitness
+        # Reward / fitness
         axes[2, 1].plot(log["time"], log["reward"], linewidth=linewidth, label="Reward")
         axes[2, 1].set_title("Loss")
         axes[2, 1].set_ylim([-2.05, 0.05])
-
-        # Create a twin axis (right y-axis)
-        r, g, b = np.array([1, 1, 1]) * 0.25
-        fitness_clr = (r, g, b)
         ax_right = axes[2, 1].twinx()
-        ax_right.plot(log["time"], log["fitness"], color=fitness_clr)
-        ax_right.set_ylabel("Cumulative Reward", color=fitness_clr)
-        ax_right.tick_params(axis="y", labelcolor=fitness_clr)
+        ax_right.plot(log["time"], log["fitness"], color=(0.25, 0.25, 0.25))
+        ax_right.set_ylabel("Cumulative Reward", color=(0.25, 0.25, 0.25))
+        ax_right.tick_params(axis="y", labelcolor=(0.25, 0.25, 0.25))
 
-        # Set axis labels
+        # Axis labels
         for ax in axes.flat:
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Arb.")
@@ -355,9 +299,8 @@ class SequentialReachingEnv:
         plt.tight_layout()
         plt.show()
 
-        # Hand Velocity
+        # Hand velocity plot
         plt.figure(figsize=(10, 1))
-        # Annotate target change times with vertical lines
         for idx in target_onset_idcs:
             plt.axvline(
                 x=log["time"][idx],
@@ -368,9 +311,7 @@ class SequentialReachingEnv:
             )
         hand_positions = np.array(log["hand_position"])
         hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
-        time = np.array(
-            log["time"][:-1]
-        )  # Exclude the last time step to match velocity array length
+        time = np.array(log["time"][:-1])
         plt.plot(
             time,
             hand_velocities,
@@ -380,15 +321,26 @@ class SequentialReachingEnv:
         )
         plt.xlabel("Time (s)")
         plt.ylabel("Hand velocity (a.u.)")
-        ax_right = plt.gca().twinx()  # Create a twin axis (right y-axis)
+        ax_right = plt.gca().twinx()
         ax_right.plot(
-            log["time"][:-1],
+            time,
             log["distance"][:-1],
             linewidth=linewidth,
-            label="Distance",
             color="red",
+            label="Distance",
         )
         ax_right.set_ylabel("Distance", color="red")
         ax_right.tick_params(axis="y", labelcolor="red")
+        plt.show()
 
         self.logger = None
+
+    def _draw_target_lines(self, axes, times):
+        for t in times:
+            for ax in axes.flatten():
+                ax.axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
+
+    def _plot_sensor_group(self, ax, time, sensors, keys, title):
+        for key in keys:
+            ax.plot(time, sensors[key], label=key.replace("_", " ").title())
+        ax.set_title(title)
