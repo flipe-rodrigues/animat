@@ -30,6 +30,7 @@ from cmaes import CMA
 # SETUP ENVIRONMENT (same for both approaches)
 # ============================================================================
 
+
 def setup_environment():
     """Setup the standard environment"""
     # Initialize the plant
@@ -58,7 +59,7 @@ def setup_environment():
             "lasso": 0,
         },
     )
-    
+
     return reacher, target_encoder, env
 
 
@@ -81,48 +82,49 @@ def create_rnn(reacher, target_encoder):
 # APPROACH 1: CMA-ES (Original)
 # ============================================================================
 
+
 def train_with_cmaes(env, rnn, num_generations=1000):
     """
     Train RNN using CMA-ES
-    
+
     Args:
         env: Environment
         rnn: RNN to train
         num_generations: Number of CMA-ES generations
-        
+
     Returns:
         Trained RNN and fitness history
     """
     print("=" * 80)
     print("Training with CMA-ES")
     print("=" * 80)
-    
+
     optimizer = CMA(mean=rnn.get_params(), sigma=1.3)
     fitnesses = []
-    
+
     for gg in range(num_generations):
         solutions = []
-        
+
         for ii in range(optimizer.population_size):
             x = optimizer.ask()
             fitness = -env.evaluate(rnn.from_params(x), seed=gg)
             solutions.append((x, fitness))
             fitnesses.append((gg, ii, fitness))
-            
+
             if ii == 0:  # Print first of each generation
                 print(f"Generation {gg}: Fitness = {fitness:.4f}")
-        
+
         optimizer.tell(solutions)
-        
+
         # Periodic evaluation
         if gg % 100 == 0:
             best_rnn = rnn.from_params(optimizer.mean)
             eval_fitness = -env.evaluate(best_rnn, seed=0, render=False, log=False)
             print(f"  Evaluation fitness: {eval_fitness:.4f}")
-    
+
     # Get best RNN
     best_rnn = rnn.from_params(optimizer.mean)
-    
+
     return best_rnn, fitnesses
 
 
@@ -130,23 +132,24 @@ def train_with_cmaes(env, rnn, num_generations=1000):
 # APPROACH 2: RL + Distillation (New)
 # ============================================================================
 
+
 def train_with_rl(env, rnn, rl_iterations=1000, distillation_epochs=100):
     """
     Train RNN using RL + Distillation
-    
+
     Args:
         env: Environment
         rnn: RNN to train
         rl_iterations: Number of PPO iterations
         distillation_epochs: Number of distillation epochs
-        
+
     Returns:
         Trained RNN and statistics
     """
     print("=" * 80)
     print("Training with RL + Distillation")
     print("=" * 80)
-    
+
     # Configure RL training
     rl_config = RLConfig(
         num_iterations=rl_iterations,
@@ -155,7 +158,7 @@ def train_with_rl(env, rnn, rl_iterations=1000, distillation_epochs=100):
         num_epochs=10,
         log_interval=10,
     )
-    
+
     # Configure distillation
     distillation_config = DistillationConfig(
         num_epochs=distillation_epochs,
@@ -163,7 +166,7 @@ def train_with_rl(env, rnn, rl_iterations=1000, distillation_epochs=100):
         batch_size=128,
         log_interval=10,
     )
-    
+
     # Train
     trained_rnn, teacher, stats = train_with_rl_distillation(
         env=env,
@@ -171,7 +174,7 @@ def train_with_rl(env, rnn, rl_iterations=1000, distillation_epochs=100):
         rl_config=rl_config,
         distillation_config=distillation_config,
     )
-    
+
     return trained_rnn, stats
 
 
@@ -179,184 +182,179 @@ def train_with_rl(env, rnn, rl_iterations=1000, distillation_epochs=100):
 # COMPARISON AND VISUALIZATION
 # ============================================================================
 
+
 def evaluate_policy(env, rnn, num_trials=10):
     """
     Evaluate a policy over multiple trials
-    
+
     Args:
         env: Environment
         rnn: Policy to evaluate
         num_trials: Number of evaluation trials
-        
+
     Returns:
         Mean and std of fitness
     """
     fitnesses = []
-    
+
     for trial in range(num_trials):
         fitness = -env.evaluate(rnn, seed=trial, render=False, log=False)
         fitnesses.append(fitness)
-    
+
     return np.mean(fitnesses), np.std(fitnesses)
 
 
 def plot_comparison(cmaes_fitnesses, rl_stats):
     """
     Plot comparison of both approaches
-    
+
     Args:
         cmaes_fitnesses: List of (generation, individual, fitness) from CMA-ES
         rl_stats: Statistics from RL training
     """
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    
+
     # Plot 1: CMA-ES convergence
     cmaes_array = np.array(cmaes_fitnesses)
     generations = np.unique(cmaes_array[:, 0])
-    
+
     gen_means = []
     gen_stds = []
     for gen in generations:
         gen_fitness = cmaes_array[cmaes_array[:, 0] == gen][:, 2]
         gen_means.append(np.mean(gen_fitness))
         gen_stds.append(np.std(gen_fitness))
-    
+
     gen_means = np.array(gen_means)
     gen_stds = np.array(gen_stds)
-    
-    axes[0].plot(generations, gen_means, label='CMA-ES', color='blue')
+
+    axes[0].plot(generations, gen_means, label="CMA-ES", color="blue")
     axes[0].fill_between(
-        generations,
-        gen_means - gen_stds,
-        gen_means + gen_stds,
-        alpha=0.2,
-        color='blue'
+        generations, gen_means - gen_stds, gen_means + gen_stds, alpha=0.2, color="blue"
     )
-    axes[0].set_xlabel('Generation')
-    axes[0].set_ylabel('Fitness')
-    axes[0].set_title('CMA-ES Training')
+    axes[0].set_xlabel("Generation")
+    axes[0].set_ylabel("Fitness")
+    axes[0].set_title("CMA-ES Training")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
-    
+
     # Plot 2: RL training
-    if rl_stats['rl_stats'] is not None:
-        iterations = rl_stats['rl_stats']['iteration']
-        rewards = rl_stats['rl_stats']['episode_reward_mean']
-        reward_stds = rl_stats['rl_stats']['episode_reward_std']
-        
-        axes[1].plot(iterations, rewards, label='PPO', color='green')
+    if rl_stats["rl_stats"] is not None:
+        iterations = rl_stats["rl_stats"]["iteration"]
+        rewards = rl_stats["rl_stats"]["episode_reward_mean"]
+        reward_stds = rl_stats["rl_stats"]["episode_reward_std"]
+
+        axes[1].plot(iterations, rewards, label="PPO", color="green")
         axes[1].fill_between(
             iterations,
             np.array(rewards) - np.array(reward_stds),
             np.array(rewards) + np.array(reward_stds),
             alpha=0.2,
-            color='green'
+            color="green",
         )
-        axes[1].set_xlabel('Iteration')
-        axes[1].set_ylabel('Episode Reward')
-        axes[1].set_title('PPO Training (Teacher)')
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Episode Reward")
+        axes[1].set_title("PPO Training (Teacher)")
         axes[1].legend()
         axes[1].grid(True, alpha=0.3)
-    
+
     # Plot 3: Distillation training
-    epochs = rl_stats['distillation_stats']['epoch']
-    action_loss = rl_stats['distillation_stats']['action_loss']
-    kl_loss = rl_stats['distillation_stats']['kl_loss']
-    
-    axes[2].plot(epochs, action_loss, label='Action Loss', color='orange')
-    axes[2].plot(epochs, kl_loss, label='KL Loss', color='red')
-    axes[2].set_xlabel('Epoch')
-    axes[2].set_ylabel('Loss')
-    axes[2].set_title('Distillation Training (Student RNN)')
+    epochs = rl_stats["distillation_stats"]["epoch"]
+    action_loss = rl_stats["distillation_stats"]["action_loss"]
+    kl_loss = rl_stats["distillation_stats"]["kl_loss"]
+
+    axes[2].plot(epochs, action_loss, label="Action Loss", color="orange")
+    axes[2].plot(epochs, kl_loss, label="KL Loss", color="red")
+    axes[2].set_xlabel("Epoch")
+    axes[2].set_ylabel("Loss")
+    axes[2].set_title("Distillation Training (Student RNN)")
     axes[2].legend()
     axes[2].grid(True, alpha=0.3)
-    axes[2].set_yscale('log')
-    
+    axes[2].set_yscale("log")
+
     plt.tight_layout()
-    plt.savefig('training_comparison.png', dpi=150)
+    plt.savefig("training_comparison.png", dpi=150)
     plt.show()
 
 
 def main():
     """Main comparison script"""
-    
+
     # Setup
     reacher, target_encoder, env = setup_environment()
-    
+
     # ========================================================================
     # Train with both approaches
     # ========================================================================
-    
+
     # Approach 1: CMA-ES
     print("\n" + "=" * 80)
     print("APPROACH 1: CMA-ES")
     print("=" * 80 + "\n")
-    
+
     rnn_cmaes = create_rnn(reacher, target_encoder)
     trained_rnn_cmaes, cmaes_fitnesses = train_with_cmaes(
-        env, rnn_cmaes, num_generations=100  # Reduced for demo
+        env, rnn_cmaes, num_generations=10  # Reduced for demo
     )
-    
+
     # Approach 2: RL + Distillation
     print("\n" + "=" * 80)
     print("APPROACH 2: RL + Distillation")
     print("=" * 80 + "\n")
-    
+
     rnn_rl = create_rnn(reacher, target_encoder)
     trained_rnn_rl, rl_stats = train_with_rl(
-        env, rnn_rl,
-        rl_iterations=100,  # Reduced for demo
-        distillation_epochs=50
+        env, rnn_rl, rl_iterations=10, distillation_epochs=50  # Reduced for demo
     )
-    
+
     # ========================================================================
     # Evaluate both
     # ========================================================================
-    
+
     print("\n" + "=" * 80)
     print("EVALUATION")
     print("=" * 80)
-    
+
     print("\nEvaluating CMA-ES policy...")
     cmaes_mean, cmaes_std = evaluate_policy(env, trained_rnn_cmaes, num_trials=10)
     print(f"CMA-ES: {cmaes_mean:.4f} ± {cmaes_std:.4f}")
-    
+
     print("\nEvaluating RL+Distillation policy...")
     rl_mean, rl_std = evaluate_policy(env, trained_rnn_rl, num_trials=10)
     print(f"RL+Distillation: {rl_mean:.4f} ± {rl_std:.4f}")
-    
+
     # ========================================================================
     # Comparison
     # ========================================================================
-    
+
     print("\n" + "=" * 80)
     print("COMPARISON")
     print("=" * 80)
-    
+
     print(f"\nCMA-ES:             {cmaes_mean:.4f} ± {cmaes_std:.4f}")
     print(f"RL+Distillation:    {rl_mean:.4f} ± {rl_std:.4f}")
-    
+
     if rl_mean > cmaes_mean:
         improvement = ((rl_mean - cmaes_mean) / abs(cmaes_mean)) * 100
         print(f"\nRL+Distillation is {improvement:.1f}% better")
     else:
         improvement = ((cmaes_mean - rl_mean) / abs(rl_mean)) * 100
         print(f"\nCMA-ES is {improvement:.1f}% better")
-    
+
     # Plot
     plot_comparison(cmaes_fitnesses, rl_stats)
-    
+
     # ========================================================================
     # Visual Comparison
     # ========================================================================
-    
+
     print("\n" + "=" * 80)
     print("VISUAL COMPARISON")
     print("=" * 80)
     print("\nRendering CMA-ES policy...")
     env.evaluate(trained_rnn_cmaes, seed=0, render=True, log=True)
     env.plot()
-    
+
     print("\nRendering RL+Distillation policy...")
     env.evaluate(trained_rnn_rl, seed=0, render=True, log=True)
     env.plot()
@@ -414,12 +412,13 @@ if __name__ == "__main__":
     # Quick demo
     print("This script compares CMA-ES vs RL+Distillation approaches")
     print("Uncomment main() to run the full comparison (takes time!)")
-    
+
     main()  # Uncomment to run
-    
+
     print("\nTo use the RL+Distillation approach in your code:")
     print("=" * 80)
-    print("""
+    print(
+        """
 from rl_distillation import train_with_rl_distillation, RLConfig, DistillationConfig
 
 # Setup your environment as usual
@@ -439,4 +438,5 @@ trained_rnn, teacher, stats = train_with_rl_distillation(
 # Use the trained RNN
 env.evaluate(trained_rnn, render=True, log=True)
 env.plot()
-    """)
+    """
+    )

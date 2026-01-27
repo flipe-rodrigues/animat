@@ -141,7 +141,7 @@ class SequentialReachingEnv:
         )
         target_offset_times = target_onset_times + target_durations
         trial_duration = target_durations.sum() + itis.sum()
-        
+
         total_reward = 0
         target_idx = 0
 
@@ -206,72 +206,6 @@ class SequentialReachingEnv:
                 )
         self.plant.close()
         return total_reward / trial_duration
-
-    """
-    ..######..########.####.##.....##.##.....##.##..........###....########.########
-    .##....##....##.....##..###...###.##.....##.##.........##.##......##....##......
-    .##..........##.....##..####.####.##.....##.##........##...##.....##....##......
-    ..######.....##.....##..##.###.##.##.....##.##.......##.....##....##....######..
-    .......##....##.....##..##.....##.##.....##.##.......#########....##....##......
-    .##....##....##.....##..##.....##.##.....##.##.......##.....##....##....##......
-    ..######.....##....####.##.....##..#######..########.##.....##....##....########
-    """
-
-    def stimulate(self, rnn, units, action_modifier=1, delay=1, seed=0, render=False):
-        """Evaluate fitness of a given RNN policy"""
-        np.random.seed(seed)
-
-        rnn.init_state()
-        self.plant.reset()
-
-        if render:
-            self.plant.render()
-
-        # Turn on the "nail"
-        self.plant.model.eq_active0 = 1
-
-        force_data = {"position": [], "force": []}
-
-        total_delay = 0
-
-        grid_positions = np.array(self.plant.grid_positions.copy())
-        grid_pos_idx = 0
-        self.plant.update_nail(grid_positions[grid_pos_idx])
-
-        # Update the target position
-        target_position = self.plant.sample_targets(1)
-        self.plant.update_target(target_position)
-
-        while grid_pos_idx < len(grid_positions) - 1:
-            if render:
-                self.plant.render()
-
-            context, feedback = self.plant.get_obs()
-            obs = np.concatenate([context, feedback])
-
-            # Stimulate the specified units
-            if self.plant.data.time > total_delay - delay / 2:
-                rnn.h[units] = rnn.activation(np.inf)
-
-            # Update nail position
-            if self.plant.data.time > total_delay:
-                grid_pos_idx += 1
-                self.plant.update_nail(grid_positions[grid_pos_idx])
-                total_delay += delay
-
-            action = rnn.step(obs) * action_modifier
-            self.plant.step(action)
-            force = self.plant.data.efc_force.copy()
-
-            if force.shape != (3,):
-                force = np.full(3, np.nan)
-
-            force_data["position"].append(grid_positions[grid_pos_idx])
-            force_data["force"].append(force)
-
-        self.plant.close()
-
-        return force_data
 
     """
     .########..##........#######..########
