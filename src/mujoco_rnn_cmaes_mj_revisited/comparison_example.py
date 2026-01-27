@@ -124,7 +124,6 @@ def train_with_cmaes(env, rnn, num_generations=1000):
 
     # Get best RNN
     best_rnn = rnn.from_params(optimizer.mean)
-
     return best_rnn, fitnesses
 
 
@@ -275,6 +274,17 @@ def plot_comparison(cmaes_fitnesses, rl_stats):
     plt.tight_layout()
     plt.savefig("training_comparison.png", dpi=150)
     plt.show()
+
+
+"""
+.##.....##....###....####.##....##
+.###...###...##.##....##..###...##
+.####.####..##...##...##..####..##
+.##.###.##.##.....##..##..##.##.##
+.##.....##.#########..##..##..####
+.##.....##.##.....##..##..##...###
+.##.....##.##.....##.####.##....##
+"""
 
 
 def main():
