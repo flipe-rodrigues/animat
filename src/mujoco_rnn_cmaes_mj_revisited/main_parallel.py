@@ -234,8 +234,8 @@ def print_generation_stats(generation: int, fitnesses, gen_time: float,
         f"Best: {best_fitness:7.3f} | "
         f"Mean: {mean_fitness:7.3f} ± {std_fitness:6.3f} | "
         f"Speed: {evals_per_sec:5.1f} eval/s | "
-        f"Gen Time: {gen_time:6.1f}s | "
-        f"Total Time: {total_time:6.1f}s"
+        f"ΔT: {gen_time:6.1f}s | "
+        f"T: {total_time:6.1f}s"
     )
 
 
