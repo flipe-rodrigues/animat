@@ -223,7 +223,7 @@ if __name__ == "__main__":
             total_time = time.time() - start_time
 
             # Calculate statistics
-            best_fitness = max(pop_fitnesses)
+            best_fitness = min(pop_fitnesses)
             mean_fitness = np.mean(pop_fitnesses)
             std_fitness = np.std(pop_fitnesses)
             evals_per_sec = optimizer.population_size / gen_time
