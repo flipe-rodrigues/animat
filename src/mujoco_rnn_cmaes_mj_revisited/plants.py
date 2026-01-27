@@ -147,6 +147,19 @@ class SequentialReacher:
     def get_gravity(self):
         return self.model.opt.gravity.copy()
 
+    def get_distance_to_target(self):
+        hand_pos = self.get_hand_pos()
+        target_pos = self.get_target_pos()
+        distance = np.linalg.norm(hand_pos - target_pos)
+        distance *= 1.0 if self.target_is_active else 0.0
+        return distance
+
+    def is_hand_touching_target(self):
+        hand_radius = self.model.geom_size[self.hand_id][0]
+        target_radius = self.model.geom_size[self.target_id][0]
+        distance = self.get_distance_to_target()
+        return distance <= (hand_radius + target_radius)
+
     def step(self, muscle_activations):
         self.data.ctrl[:] = muscle_activations
         mujoco.mj_step(self.model, self.data)

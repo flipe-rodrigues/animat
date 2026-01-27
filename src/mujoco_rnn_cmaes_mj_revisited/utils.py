@@ -97,6 +97,11 @@ def action_entropy(action, base=2):
     return -np.sum(action_pdf * np.log(action_pdf) / np.log(base))
 
 
+def gamma_from_tau(tau, dt):
+    """Convert time constant tau to discount factor gamma."""
+    return np.exp(-dt / tau)
+
+
 def alpha_from_tau(tau, dt):
     """Convert time constant tau to discrete-time alpha parameter."""
     return 1 - np.exp(-dt / tau)

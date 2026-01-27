@@ -84,7 +84,7 @@
       <site name="pendulum_site1" pos="0 0 0" size="0.01" />
     </body>
     <body name="pendulum_bob" pos="0 0.1 0.25">
-      <joint type="free" />
+      <joint type="free" stiffness="0" damping="0" />
       <geom size="0.025" type="sphere" rgba="1 0.66 0 1" />
       <site name="pendulum_site2" pos="0 0 0" size="0.01" />
     </body>

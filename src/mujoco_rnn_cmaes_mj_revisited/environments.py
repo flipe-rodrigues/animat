@@ -18,10 +18,11 @@ class SequentialReachingEnv:
         target_duration_distro,
         iti_distro,
         num_targets,
-        randomize_gravity,
-        loss_weights,
-        use_potential_shaping=False,  # Enable potential-based shaping
-        gamma=0.99,  # Discount factor for potential shaping
+        randomize_gravity=False,
+        loss_weights={
+            "distance": 1.0,
+            "energy": 0.1,
+        },
     ):
         self.plant = plant
         self.target_encoder = target_encoder
@@ -31,11 +32,6 @@ class SequentialReachingEnv:
         self.randomize_gravity = randomize_gravity
         self.loss_weights = loss_weights
         self.logger = None
-
-        # Potential-based shaping
-        self.use_potential_shaping = use_potential_shaping
-        self.gamma = gamma
-        self.previous_distance = None
 
     """
     .##........#######...######....######...########.########.
@@ -103,7 +99,6 @@ class SequentialReachingEnv:
         rnn.init_state()
         self.plant.reset()
         self.plant.disable_target()
-        self.previous_distance = None  # Reset potential shaping
 
         # Sample targets and durations
         target_positions = self.plant.sample_targets(self.num_targets)
@@ -137,7 +132,6 @@ class SequentialReachingEnv:
             if self.plant.data.time >= target_offset_times[target_idx]:
                 self.plant.disable_target()
                 target_idx += 1
-                self.previous_distance = None  # Reset for next target
 
             # Enable target if past onset
             if (
@@ -164,18 +158,12 @@ class SequentialReachingEnv:
             motor_commands = rnn.step(tgt_obs, len_obs, vel_obs, frc_obs)
             self.plant.step(motor_commands)
 
-            hand_position = self.plant.get_hand_pos()
-            distance = (
-                l2_norm(target_position - hand_position)
-                if self.plant.target_is_active
-                else 0
-            )
-
+            distance = self.plant.get_distance_to_target()
             energy = sum(motor_commands**2)
 
             # Rewards
-            distance_reward = self._compute_distance_reward(distance)
-            energy_reward = self._compute_energy_reward(energy)
+            distance_reward = -distance * self.loss_weights["distance"]
+            energy_reward = -energy * self.loss_weights["energy"]
             reward = distance_reward + energy_reward
             total_reward += reward
 
@@ -185,7 +173,7 @@ class SequentialReachingEnv:
                     time=self.plant.data.time,
                     sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
                     target_position=target_position,
-                    hand_position=hand_position,
+                    hand_position=self.plant.get_hand_pos(),
                     gravity=self.plant.get_gravity(),
                     distance=distance,
                     energy=energy,
@@ -195,28 +183,6 @@ class SequentialReachingEnv:
 
         self.plant.close()
         return total_reward / trial_duration
-
-    def _compute_distance_reward(self, distance):
-        """Compute distance-based reward with optional potential shaping
-        r'(s, a, s') = γ * Φ(s') - Φ(s)
-        """
-        if self.use_potential_shaping and self.plant.target_is_active:
-            current_potential = -distance
-            if self.previous_distance is not None:
-                prev_potential = -self.previous_distance
-                reward = (
-                    self.gamma * current_potential - prev_potential
-                ) * self.loss_weights["distance"]
-            else:
-                reward = 0.0
-            self.previous_distance = distance
-        else:
-            reward = -distance * self.loss_weights["distance"]
-        return reward
-
-    def _compute_energy_reward(self, energy):
-        """Compute energy-based reward"""
-        return -energy * self.loss_weights["energy"]
 
     """
     .########..##........#######..########
