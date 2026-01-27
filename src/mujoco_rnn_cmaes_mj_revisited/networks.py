@@ -52,8 +52,6 @@ class NeuroMuscularRNN:
     def _init_weight_specs(self):
         self._weight_specs = [
             self._weight_spec("W_tgt2h", self.target_size, self.hidden_size),
-            self._weight_spec("W_tgt2gs", self.target_size, self.output_size),
-            self._weight_spec("W_tgt2gd", self.target_size, self.output_size),
             self._weight_spec("W_len2h", self.length_size, self.hidden_size),
             self._weight_spec("W_vel2h", self.velocity_size, self.hidden_size),
             self._weight_spec("W_frc2h", self.force_size, self.hidden_size),
@@ -132,10 +130,10 @@ class NeuroMuscularRNN:
             h_input += self.b_h
 
         # Compute inputs to gamma static and dynamic motoneurons
-        gs_input = abs(self.W_tgt2gs) @ tgt_obs + self.W_h2gs @ self.h
+        gs_input = self.W_h2gs @ self.h
         if self.use_bias:
             gs_input += self.b_gs
-        gd_input = abs(self.W_tgt2gd) @ tgt_obs + self.W_h2gd @ self.h
+        gd_input = self.W_h2gd @ self.h
         if self.use_bias:
             gd_input += self.b_gd
 
@@ -164,7 +162,7 @@ class NeuroMuscularRNN:
         # Update alpha motoneurons
         self.a = (
             1 - self.smoothing_factor
-        ) * self.a + self.smoothing_factor * self.activation(a_input)
+        ) * self.a + self.smoothing_factor * logistic(a_input)
 
         return self.a
 

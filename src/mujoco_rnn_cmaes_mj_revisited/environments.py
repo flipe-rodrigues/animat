@@ -46,7 +46,7 @@ class SequentialReachingEnv:
     def _init_logger(self):
         self.logger = {
             "time": [],
-            "sensors": {f"{s}_{t}": [] for s in MUSCLES for t in SENSORS},
+            "sensors": {f"{m}_{s}": [] for s in SENSORS for m in MUSCLES},
             "target_position": [],
             "hand_position": [],
             "gravity": [],

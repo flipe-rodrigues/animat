@@ -4,7 +4,6 @@ from xml.parsers.expat import model
 import mujoco
 import mujoco.viewer
 from utils import *
-from collections import Counter
 
 
 class SequentialReacher:
@@ -105,7 +104,7 @@ class SequentialReacher:
         """Update the position of the nail"""
         self.data.eq_active[0] = 0
         mujoco.mj_forward(self.model, self.data)
-        self.data.mocap_pos[1] = position  # self.get_hand_pos()
+        self.data.mocap_pos[1] = position
         mujoco.mj_forward(self.model, self.data)
         self.data.eq_active[0] = 1
         mujoco.mj_forward(self.model, self.data)

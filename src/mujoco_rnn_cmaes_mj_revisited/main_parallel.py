@@ -144,10 +144,10 @@ def create_rnn_config(
 ) -> Dict:
     """Create RNN configuration dictionary for workers."""
     return {
-        "input_size_tgt": target_encoder.size,
-        "input_size_len": reacher.num_sensors_len,
-        "input_size_vel": reacher.num_sensors_vel,
-        "input_size_frc": reacher.num_sensors_frc,
+        "target_size": target_encoder.size,
+        "length_size": reacher.num_sensors_len,
+        "velocity_size": reacher.num_sensors_vel,
+        "force_size": reacher.num_sensors_frc,
         "hidden_size": rnn_config.hidden_size,
         "output_size": reacher.num_actuators,
         "activation": rnn_config.activation,
