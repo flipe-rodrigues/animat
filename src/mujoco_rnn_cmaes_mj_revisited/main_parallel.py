@@ -72,8 +72,6 @@ class EnvConfig:
             self.loss_weights = {
                 "distance": 1.0,
                 "energy": 0.1,
-                "ridge": 0.0,
-                "lasso": 0.0,
             }
 
 
@@ -236,7 +234,8 @@ def print_generation_stats(generation: int, fitnesses, gen_time: float,
         f"Best: {best_fitness:7.3f} | "
         f"Mean: {mean_fitness:7.3f} ± {std_fitness:6.3f} | "
         f"Speed: {evals_per_sec:5.1f} eval/s | "
-        f"Time: {total_time:6.1f}s"
+        f"Gen Time: {gen_time:6.1f}s | "
+        f"Total Time: {total_time:6.1f}s"
     )
 
 
@@ -374,7 +373,12 @@ def main():
     )
     
     env_config = EnvConfig(
-        use_potential_shaping=False,  # 🎯 SET THIS FOR POTENTIAL-BASED SHAPING
+        loss_weights={
+            "distance": 1.0,
+            "energy": 0.1,
+        },
+        randomize_gravity=False,
+        use_potential_shaping=True,  # 🎯 SET THIS FOR POTENTIAL-BASED SHAPING
         gamma=0.99,
     )
     

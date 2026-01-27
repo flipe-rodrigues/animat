@@ -197,7 +197,9 @@ class SequentialReachingEnv:
         return total_reward / trial_duration
 
     def _compute_distance_reward(self, distance):
-        """Compute distance-based reward with optional potential shaping"""
+        """Compute distance-based reward with optional potential shaping
+        r'(s, a, s') = γ * Φ(s') - Φ(s)
+        """
         if self.use_potential_shaping and self.plant.target_is_active:
             current_potential = -distance
             if self.previous_distance is not None:
