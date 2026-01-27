@@ -244,7 +244,9 @@ class SequentialReachingEnv:
         axes[1, 1].legend()
 
         # Energy
-        axes[2, 0].plot(log["time"], log["energy"], linewidth=0.1, label="Energy")
+        axes[2, 0].plot(
+            log["time"], log["energy"], linewidth=linewidth / 2, label="Energy"
+        )
         axes[2, 0].set_title("Energy")
         axes[2, 0].set_ylim([-0.05, 2.05])
         axes[2, 0].legend()
