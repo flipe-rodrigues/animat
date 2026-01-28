@@ -1,11 +1,9 @@
 import numpy as np
 import logging
 from functools import wraps
-
 from plants import SequentialReacher
 from encoders import GridTargetEncoder
 from environments import SequentialReachingEnv
-from networks import NeuroMuscularRNN
 
 # Global worker state (initialized once per process)
 _worker_reacher = None
@@ -13,9 +11,9 @@ _worker_encoder = None
 _worker_rnn = None
 _worker_env_config = None
 
-# Setup logging
+# Setup logging (only warnings and errors)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s - Worker %(process)d - %(levelname)s - %(message)s",
 )
 
@@ -45,13 +43,14 @@ def init_worker(rnn_config_dict, env_config_dict):
     that worker.
 
     Args:
-        rnn_config_dict: RNN architecture configuration
+        rnn_config_dict: RNN architecture configuration (includes 'rnn_class')
         env_config_dict: Environment configuration
     """
     global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env_config
 
     try:
-        logging.info("Initializing worker components...")
+        # Extract the RNN class from the config
+        rnn_class = rnn_config_dict.pop("rnn_class")
 
         # Create persistent reacher (expensive - do once!)
         _worker_reacher = SequentialReacher(**env_config_dict["plant"])
@@ -59,13 +58,11 @@ def init_worker(rnn_config_dict, env_config_dict):
         # Create persistent encoder
         _worker_encoder = GridTargetEncoder(**env_config_dict["encoder"])
 
-        # Create RNN template (parameters will be updated)
-        _worker_rnn = NeuroMuscularRNN(**rnn_config_dict)
+        # Create RNN template using the specified class
+        _worker_rnn = rnn_class(**rnn_config_dict)
 
         # Store env config for creating lightweight env wrappers
         _worker_env_config = env_config_dict["env"]
-
-        logging.info("Worker initialization complete")
 
     except Exception as e:
         logging.error(f"Worker initialization failed: {e}", exc_info=True)
@@ -94,7 +91,7 @@ def evaluate_worker(params, seed):
 
     # Update RNN parameters (lightweight operation)
     _worker_rnn.set_params(params)
-    _worker_rnn.init_state()
+    _worker_rnn.reset_state()  # Use reset_state() instead of init_state()
 
     # Reset plant state (lightweight operation)
     _worker_reacher.reset()
@@ -109,8 +106,6 @@ def evaluate_worker(params, seed):
     # Evaluate fitness
     loss = -env.evaluate(_worker_rnn, seed=seed, render=False, log=False)
 
-    # No explicit cleanup needed - objects are reused
-
     return loss
 
 
@@ -120,7 +115,7 @@ def cleanup_worker():
 
     Called when worker process is terminating.
     """
-    global _worker_reacher, _worker_encoder, _worker_rnn
+    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env_config
 
     if _worker_reacher is not None:
         try:
@@ -128,21 +123,20 @@ def cleanup_worker():
         except Exception as e:
             logging.warning(f"Error closing reacher: {e}")
 
+    # Clear all globals
     _worker_reacher = None
     _worker_encoder = None
     _worker_rnn = None
-    logging.info("Worker cleanup complete")
+    _worker_env_config = None
 
 
-# Alternative: Shared memory implementation for very large populations
+# Optional: Shared memory implementation for very large populations
 try:
     from multiprocessing import shared_memory
 
     SHARED_MEMORY_AVAILABLE = True
 except ImportError:
     SHARED_MEMORY_AVAILABLE = False
-    logging.warning("Shared memory not available (requires Python 3.8+)")
-
 
 if SHARED_MEMORY_AVAILABLE:
     _shared_params_shm = None
@@ -154,7 +148,7 @@ if SHARED_MEMORY_AVAILABLE:
         """
         Initialize worker with shared memory access.
 
-        For very large populations, this avoids copying parameter arrays
+        For very large populations (>1000), this avoids copying parameter arrays
         from main process to each worker.
         """
         global _shared_params_shm, _shared_params_array
@@ -163,11 +157,14 @@ if SHARED_MEMORY_AVAILABLE:
         init_worker(rnn_config_dict, env_config_dict)
 
         # Attach to shared memory
-        _shared_params_shm = shared_memory.SharedMemory(name=shm_name)
-        _shared_params_array = np.ndarray(
-            (pop_size, param_size), dtype=np.float64, buffer=_shared_params_shm.buf
-        )
-        logging.info(f"Attached to shared memory: {shm_name}")
+        try:
+            _shared_params_shm = shared_memory.SharedMemory(name=shm_name)
+            _shared_params_array = np.ndarray(
+                (pop_size, param_size), dtype=np.float64, buffer=_shared_params_shm.buf
+            )
+        except Exception as e:
+            logging.error(f"Failed to attach to shared memory: {e}")
+            raise
 
     @handle_worker_errors
     def evaluate_worker_shared(individual_idx, seed):
@@ -191,31 +188,10 @@ if SHARED_MEMORY_AVAILABLE:
         global _shared_params_shm
 
         if _shared_params_shm is not None:
-            _shared_params_shm.close()
+            try:
+                _shared_params_shm.close()
+            except Exception as e:
+                logging.warning(f"Error closing shared memory: {e}")
             _shared_params_shm = None
 
         cleanup_worker()
-
-
-# Validation function for testing
-def validate_worker_setup():
-    """
-    Validate that worker components are properly initialized.
-
-    Returns:
-        bool: True if all components are ready
-    """
-    global _worker_reacher, _worker_encoder, _worker_rnn
-
-    checks = {
-        "reacher": _worker_reacher is not None,
-        "encoder": _worker_encoder is not None,
-        "rnn": _worker_rnn is not None,
-    }
-
-    all_ok = all(checks.values())
-
-    if not all_ok:
-        logging.error(f"Worker validation failed: {checks}")
-
-    return all_ok

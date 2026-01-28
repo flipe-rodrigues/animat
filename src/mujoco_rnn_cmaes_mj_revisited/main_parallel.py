@@ -11,26 +11,18 @@
 import pickle
 import time
 import os
-from dataclasses import dataclass, field, asdict
-from typing import Callable, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Type
 import multiprocessing as mp
 from multiprocessing.pool import Pool
-
 import numpy as np
 from cmaes import CMA
-
 from plants import SequentialReacher
 from encoders import GridTargetEncoder
 from environments import SequentialReachingEnv
-from networks import NeuroMuscularRNN
+from networks import NeuroMuscularRNN, AlphaOnlyRNN, FullRNN
 from utils import relu, tanh, alpha_from_tau
-
-# Import optimized workers
-from workers import (
-    init_worker,
-    evaluate_worker,
-    cleanup_worker,
-)
+from workers import init_worker, evaluate_worker
 
 
 """
@@ -46,26 +38,20 @@ from workers import (
 
 @dataclass
 class TrainingConfig:
-    """Configuration for training parameters."""
-
     num_generations: int = 10000
     initial_sigma: float = 1.3
     checkpoint_interval: int = 1000
     eval_interval: int = 10
     num_workers: int = mp.cpu_count()
     checkpoint_dir: str = "../../models"
-
-    # New: Load balancing
-    chunk_size_multiplier: int = 4  # chunksize = pop_size // (workers * multiplier)
-
-    # New: Checkpoint management
+    chunk_size_multiplier: int = 4
     keep_last_n_checkpoints: int = 5
+    seed: Optional[int] = None
 
 
 @dataclass
 class RNNConfig:
-    """Configuration for RNN architecture."""
-
+    rnn_class: Type[NeuroMuscularRNN] = FullRNN
     hidden_size: int = 25
     tau: float = 10e-3
     activation: Callable = tanh
@@ -74,57 +60,45 @@ class RNNConfig:
 
 @dataclass
 class EnvConfig:
-    """Configuration for environment."""
-
     plant_xml_file: str = "arm.xml"
     grid_size: int = 8
     sigma: float = 0.25
-    target_duration_distro: Dict = None
-    iti_distro: Dict = None
     num_targets: int = 10
     randomize_gravity: bool = True
-    loss_weights: Dict = None
 
-    def __post_init__(self):
-        if self.target_duration_distro is None:
-            self.target_duration_distro = {"mean": 3, "min": 1, "max": 6}
-        if self.iti_distro is None:
-            self.iti_distro = {"mean": 1, "min": 0, "max": 3}
-        if self.loss_weights is None:
-            self.loss_weights = {
-                "distance": 1.0,
-                "energy": 0.1,
-            }
+    # Use field with default_factory for mutable defaults
+    target_duration_distro: Dict = field(
+        default_factory=lambda: {"mean": 3, "min": 1, "max": 6}
+    )
+    iti_distro: Dict = field(default_factory=lambda: {"mean": 1, "min": 0, "max": 3})
+    loss_weights: Dict = field(default_factory=lambda: {"distance": 1.0, "energy": 0.1})
 
 
 @dataclass
 class PerformanceMetrics:
-    """Track training performance metrics."""
-
     generation_times: List[float] = field(default_factory=list)
     best_losses: List[float] = field(default_factory=list)
     mean_losses: List[float] = field(default_factory=list)
 
     def add_generation(self, gen_time, best_loss, mean_loss):
-        """Record metrics for a generation."""
         self.generation_times.append(gen_time)
         self.best_losses.append(best_loss)
         self.mean_losses.append(mean_loss)
 
     def get_summary(self):
-        """Get summary statistics."""
         if not self.generation_times:
             return {}
 
+        recent_times = self.generation_times[-100:]
+        recent_losses = (
+            self.best_losses[-10:] if len(self.best_losses) >= 10 else self.best_losses
+        )
+
         return {
-            "mean_gen_time": np.mean(self.generation_times[-100:]),  # Last 100 gens
+            "mean_gen_time": np.mean(recent_times),
             "total_time": sum(self.generation_times),
             "best_loss_overall": min(self.best_losses),
-            "best_loss_recent": (
-                min(self.best_losses[-10:])
-                if len(self.best_losses) >= 10
-                else min(self.best_losses)
-            ),
+            "best_loss_recent": min(recent_losses),
         }
 
 
@@ -139,11 +113,16 @@ class PerformanceMetrics:
 """
 
 
-def create_rnn_config(
-    reacher: SequentialReacher, target_encoder: GridTargetEncoder, rnn_config: RNNConfig
-) -> Dict:
-    """Create RNN configuration dictionary for workers."""
-    return {
+def create_configs_for_workers(
+    reacher: SequentialReacher,
+    target_encoder: GridTargetEncoder,
+    rnn_config: RNNConfig,
+    env_config: EnvConfig,
+) -> tuple[Dict, Dict]:
+    workspace_bounds = reacher.get_workspace_bounds()
+
+    rnn_config_dict = {
+        "rnn_class": rnn_config.rnn_class,
         "target_size": target_encoder.size,
         "length_size": reacher.num_sensors_len,
         "velocity_size": reacher.num_sensors_vel,
@@ -157,12 +136,7 @@ def create_rnn_config(
         "use_bias": rnn_config.use_bias,
     }
 
-
-def create_env_config(reacher: SequentialReacher, env_config: EnvConfig) -> Dict:
-    """Create environment configuration dictionary for workers."""
-    workspace_bounds = reacher.get_workspace_bounds()
-
-    return {
+    env_config_dict = {
         "plant": {"plant_xml_file": env_config.plant_xml_file},
         "encoder": {
             "grid_size": env_config.grid_size,
@@ -179,9 +153,10 @@ def create_env_config(reacher: SequentialReacher, env_config: EnvConfig) -> Dict
         },
     }
 
+    return rnn_config_dict, env_config_dict
+
 
 def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
-    """Initialize all components needed for training."""
     # Create plant
     reacher = SequentialReacher(plant_xml_file=env_config.plant_xml_file)
 
@@ -194,8 +169,8 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
         sigma=env_config.sigma,
     )
 
-    # Create RNN
-    rnn = NeuroMuscularRNN(
+    # Create RNN using the specified class
+    rnn = rnn_config.rnn_class(
         target_size=target_encoder.size,
         length_size=reacher.num_sensors_len,
         velocity_size=reacher.num_sensors_vel,
@@ -235,26 +210,12 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
 
 
 def evaluate_population(
-    pool: Pool, population, generation: int, training_config: TrainingConfig
+    pool: Pool, population, generation: int, chunk_size: int, seed: Optional[int] = None
 ):
-    """
-    Evaluate a population of individuals in parallel with load balancing.
-
-    Uses chunking to improve load balancing across workers.
-    """
-    # Prepare arguments (params, seed)
-    args_list = [(params, generation) for params in population]
-
-    # Calculate chunk size for better load balancing
-    pop_size = len(population)
-    num_workers = training_config.num_workers
-    chunk_size = max(
-        1, pop_size // (num_workers * training_config.chunk_size_multiplier)
-    )
-
-    # Evaluate with chunking
+    args_list = [
+        (params, generation if seed is None else seed) for params in population
+    ]
     results = pool.starmap(evaluate_worker, args_list, chunksize=chunk_size)
-
     return results
 
 
@@ -266,13 +227,11 @@ def print_generation_stats(
     pop_size: int,
     metrics: PerformanceMetrics,
 ):
-    """Print statistics for current generation."""
     best_loss = min(losses)
     mean_loss = np.mean(losses)
     std_loss = np.std(losses)
     evals_per_sec = pop_size / gen_time
 
-    # Get recent performance
     summary = metrics.get_summary()
     recent_best = summary.get("best_loss_recent", best_loss)
 
@@ -291,14 +250,14 @@ def evaluate_best_solution(
     rnn: NeuroMuscularRNN,
     eval_env: SequentialReachingEnv,
     verbose: bool = True,
+    seed: int = 42,
 ):
-    """Evaluate the current best solution."""
     best_rnn = rnn.from_params(optimizer.mean)
 
     if verbose:
         print(f"  → Evaluating best solution...")
 
-    eval_loss = -eval_env.evaluate(best_rnn, seed=0, render=True, log=True)
+    eval_loss = -eval_env.evaluate(best_rnn, seed=seed, render=True, log=True)
 
     if verbose:
         print(f"  → Evaluation loss: {eval_loss:.3f}")
@@ -311,17 +270,16 @@ def save_checkpoint(
     optimizer: CMA,
     generation: int,
     metrics: PerformanceMetrics,
-    configs: Dict,
+    rnn_class_name: str,
     checkpoint_dir: str,
 ):
-    """Save complete training checkpoint with atomic write."""
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     checkpoint = {
         "optimizer": optimizer,
         "generation": generation,
         "metrics": metrics,
-        "configs": configs,
+        "rnn_class_name": rnn_class_name,
         "timestamp": time.time(),
     }
 
@@ -341,11 +299,9 @@ def save_checkpoint(
 
 
 def cleanup_old_checkpoints(checkpoint_dir: str, keep_last_n: int = 5):
-    """Keep only the most recent N checkpoints."""
     if not os.path.exists(checkpoint_dir):
         return
 
-    # Find all checkpoint files
     checkpoint_files = [
         f
         for f in os.listdir(checkpoint_dir)
@@ -387,17 +343,8 @@ def train(
     training_config: TrainingConfig,
     env_config: EnvConfig,
     rnn_config: RNNConfig,
-    resume_from: str = None,
+    resume_from: Optional[str] = None,
 ):
-    """
-    Main training loop with optimizations.
-
-    Args:
-        training_config: Training configuration
-        env_config: Environment configuration
-        rnn_config: RNN configuration
-        resume_from: Optional path to checkpoint to resume from
-    """
     print("=" * 80)
     print("PARALLEL CMA-ES TRAINING")
     print("=" * 80)
@@ -406,8 +353,9 @@ def train(
     reacher, target_encoder, rnn, eval_env = setup_components(env_config, rnn_config)
 
     # Create configuration dictionaries for workers
-    rnn_config_dict = create_rnn_config(reacher, target_encoder, rnn_config)
-    env_config_dict = create_env_config(reacher, env_config)
+    rnn_config_dict, env_config_dict = create_configs_for_workers(
+        reacher, target_encoder, rnn_config, env_config
+    )
 
     # Initialize or resume
     if resume_from:
@@ -418,26 +366,23 @@ def train(
         start_generation = checkpoint["generation"] + 1
         metrics = checkpoint.get("metrics", PerformanceMetrics())
     else:
-        optimizer = CMA(
-            mean=rnn.get_params(),
-            sigma=training_config.initial_sigma,
-            # bounds=rnn.get_bounds(),
-        )
+        optimizer = CMA(mean=rnn.get_params(), sigma=training_config.initial_sigma)
         start_generation = 0
         metrics = PerformanceMetrics()
 
-    # Store configs for checkpointing
-    configs = {
-        "training": asdict(training_config),
-        "env": asdict(env_config),
-        "rnn": asdict(rnn_config),
-    }
+    # Calculate chunk size once
+    chunk_size = max(
+        1,
+        optimizer.population_size
+        // (training_config.num_workers * training_config.chunk_size_multiplier),
+    )
 
-    print(f"\nUsing {training_config.num_workers} parallel workers")
+    print(f"\nRNN Type: {rnn_config.rnn_class.__name__}")
+    print(f"Using {training_config.num_workers} parallel workers")
     print(f"Population size: {optimizer.population_size}")
-    print(f"Chunk size multiplier: {training_config.chunk_size_multiplier}")
-    print(f"Expected speedup: ~{training_config.num_workers}x")
-    print(f"Optimizing {rnn.num_weights} weights and {rnn.num_biases} biases ")
+    print(f"Chunk size: {chunk_size}")
+    print(f"Seed: {training_config.seed}")
+    print(f"Optimizing {rnn.num_weights} weights and {rnn.num_biases} biases")
     print("=" * 80)
 
     # Create worker pool with initialization
@@ -456,25 +401,19 @@ def train(
         for generation in range(start_generation, training_config.num_generations):
             gen_start = time.time()
 
-            # Generate population
+            # Generate and evaluate population
             population = [optimizer.ask() for _ in range(optimizer.population_size)]
-
-            # Evaluate population in parallel (OPTIMIZED)
             pop_losses = evaluate_population(
-                pool, population, generation, training_config
+                pool, population, generation, chunk_size, seed=training_config.seed
             )
 
             # Update optimizer
-            solutions = list(zip(population, pop_losses))
-            optimizer.tell(solutions)
+            optimizer.tell(list(zip(population, pop_losses)))
 
             # Track metrics
             gen_time = time.time() - gen_start
             total_time = time.time() - start_time
-            best_loss = min(pop_losses)
-            mean_loss = np.mean(pop_losses)
-
-            metrics.add_generation(gen_time, best_loss, mean_loss)
+            metrics.add_generation(gen_time, min(pop_losses), np.mean(pop_losses))
 
             # Print statistics
             print_generation_stats(
@@ -488,7 +427,9 @@ def train(
 
             # Periodic evaluation
             if generation % training_config.eval_interval == 0:
-                evaluate_best_solution(optimizer, rnn, eval_env)
+                evaluate_best_solution(
+                    optimizer, rnn, eval_env, seed=training_config.seed
+                )
 
             # Save checkpoints
             if generation % training_config.checkpoint_interval == 0 and generation > 0:
@@ -496,7 +437,7 @@ def train(
                     optimizer,
                     generation,
                     metrics,
-                    configs,
+                    rnn_config.rnn_class.__name__,
                     training_config.checkpoint_dir,
                 )
                 cleanup_old_checkpoints(
@@ -508,10 +449,12 @@ def train(
         print("\n" + "=" * 80)
         print("Training interrupted by user")
         print("=" * 80)
-
-        # Save interrupt checkpoint
         save_checkpoint(
-            optimizer, generation, metrics, configs, training_config.checkpoint_dir
+            optimizer,
+            generation,
+            metrics,
+            rnn_config.rnn_class.__name__,
+            training_config.checkpoint_dir,
         )
 
     finally:
@@ -547,33 +490,26 @@ def train(
 
 
 def main():
-    """Main entry point."""
-    # Configuration
     training_config = TrainingConfig(
         num_generations=10000,
         initial_sigma=1.3,
         checkpoint_interval=1000,
         eval_interval=10,
-        chunk_size_multiplier=4,  # Better load balancing
-        keep_last_n_checkpoints=5,  # Save space
+        chunk_size_multiplier=4,
+        keep_last_n_checkpoints=5,
+        seed=42,
     )
-
     env_config = EnvConfig(
-        loss_weights={
-            "distance": 1.0,
-            "energy": 0.05,
-        },
+        loss_weights={"distance": 1.0, "energy": 0.05},
         randomize_gravity=False,
     )
-
     rnn_config = RNNConfig(
+        rnn_class=AlphaOnlyRNN,  # Change to AlphaOnlyRNN or FullRNN
         hidden_size=25,
         tau=10e-3,
         activation=tanh,
-        use_bias=False,
+        use_bias=True,
     )
-
-    # Run training
     train(training_config, env_config, rnn_config)
 
 

@@ -48,6 +48,7 @@ class SequentialReachingEnv:
             "time": [],
             "sensors": {f"{m}_{s}": [] for s in SENSORS for m in MUSCLES},
             "target_position": [],
+            "target_observations": [],
             "hand_position": [],
             "gravity": [],
             "distance": [],
@@ -61,6 +62,7 @@ class SequentialReachingEnv:
         time,
         sensors,
         target_position,
+        target_observations,
         hand_position,
         gravity,
         distance,
@@ -75,6 +77,7 @@ class SequentialReachingEnv:
         for key, value in zip(self.logger["sensors"], sensors):
             self.logger["sensors"][key].append(value)
         self.logger["target_position"].append(target_position)
+        self.logger["target_observations"].append(target_observations)
         self.logger["hand_position"].append(hand_position)
         self.logger["gravity"].append(gravity)
         self.logger["distance"].append(distance)
@@ -172,6 +175,7 @@ class SequentialReachingEnv:
                     time=self.plant.data.time,
                     sensors=np.concatenate([len_obs, vel_obs, frc_obs]),
                     target_position=target_pos,
+                    target_observations=tgt_obs,
                     hand_position=self.plant.get_hand_pos(),
                     gravity=self.plant.get_gravity(),
                     distance=distance,
@@ -198,18 +202,44 @@ class SequentialReachingEnv:
         if log is None:
             raise RuntimeError("No data logged. Run `evaluate(log=True)` first.")
 
-        _, axes = plt.subplots(3, 2, figsize=(10, 10))
+        self._plot_target_observations(log)
+        self._plot_sensors(log)
+        self._plot_hand_velocity(log)
 
-        # Target change lines
+        self.logger = None
+
+    def _plot_target_observations(self, log, linewidth=1):
+        plt.figure(figsize=(10, 2))
+        ax = plt.gca()
+        target_observations = np.array(log["target_observations"])
+
+        # Plot as heatmap
+        im = ax.imshow(
+            target_observations.T,
+            aspect="auto",
+            interpolation="nearest",
+            extent=[log["time"][0], log["time"][-1], 0, target_observations.shape[1]],
+            origin="lower",
+        )
+
+        # Draw target onset lines on top
         target_onset_idcs = np.where(
             np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
         )[0]
         target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
         target_onset_times = [log["time"][idx] for idx in target_onset_idcs]
-        self._draw_target_lines(axes, target_onset_times)
+        for t in target_onset_times:
+            ax.axvline(x=t, color="red", linestyle="--", linewidth=0.5)
 
-        linewidth = 1
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Observation Index")
+        plt.colorbar(im, ax=ax, label="Observation Value")
+        plt.tight_layout()
+        plt.show()
 
+    def _plot_sensors(self, log, linewidth=1):
+        _, axes = plt.subplots(3, 2, figsize=(10, 10))
+        self._draw_target_lines(axes, log)
         # Plot sensors
         self._plot_sensor_group(
             axes[0, 0],
@@ -266,29 +296,23 @@ class SequentialReachingEnv:
         plt.tight_layout()
         plt.show()
 
-        # Hand velocity plot
+    def _plot_hand_velocity(self, log, linewidth=1):
         plt.figure(figsize=(10, 1))
-        for idx in target_onset_idcs:
-            plt.axvline(
-                x=log["time"][idx],
-                color="blue",
-                linestyle="--",
-                linewidth=0.5,
-                label="Target Change" if idx == target_onset_idcs[0] else None,
-            )
+        ax = plt.gca()
+        self._draw_target_lines(ax, log)
         hand_positions = np.array(log["hand_position"])
         hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
         time = np.array(log["time"][:-1])
-        plt.plot(
+        ax.plot(
             time,
             hand_velocities,
             linewidth=linewidth,
             label="Hand Velocity",
             color="black",
         )
-        plt.xlabel("Time (s)")
-        plt.ylabel("Hand velocity (a.u.)")
-        ax_right = plt.gca().twinx()
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Hand velocity (a.u.)")
+        ax_right = ax.twinx()
         ax_right.plot(
             time,
             log["distance"][:-1],
@@ -300,11 +324,18 @@ class SequentialReachingEnv:
         ax_right.tick_params(axis="y", labelcolor="red")
         plt.show()
 
-        self.logger = None
-
-    def _draw_target_lines(self, axes, times):
-        for t in times:
-            for ax in axes.flatten():
+    def _draw_target_lines(self, axs, log):
+        target_onset_idcs = np.where(
+            np.any(np.diff(np.array(log["target_position"]), axis=0) != 0, axis=1)
+        )[0]
+        target_onset_idcs = np.insert(target_onset_idcs, 0, 0)
+        target_onset_times = [log["time"][idx] for idx in target_onset_idcs]
+        if hasattr(axs, "__iter__"):
+            axs = axs.flatten()
+        else:
+            axs = [axs]
+        for t in target_onset_times:
+            for ax in axs:
                 ax.axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
 
     def _plot_sensor_group(self, ax, time, sensors, keys, title):

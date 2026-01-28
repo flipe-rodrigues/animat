@@ -131,12 +131,13 @@ class SequentialReacher:
         return self.get_sensor_obs(self.sensor_ids_vel)
 
     def get_frc_obs(self):
+        """Get scaled negative force observations"""
         force_obs = zscore(
             self.data.sensordata[self.sensor_ids_frc].copy(),
             self.sensor_stats["mean"].values[self.sensor_ids_frc] * 0.0,
             self.sensor_stats["std"].values[self.sensor_ids_frc],
         )
-        return force_obs
+        return -force_obs
 
     def get_sensor_obs(self, sensor_ids):
         sensor_obs = zscore(
