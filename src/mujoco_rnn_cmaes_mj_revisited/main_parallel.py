@@ -561,7 +561,7 @@ def main():
     env_config = EnvConfig(
         loss_weights={
             "distance": 1.0,
-            "energy": 0.1,
+            "energy": 0.05,
         },
         randomize_gravity=False,
     )
