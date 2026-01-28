@@ -1,0 +1,144 @@
+<mujoco model="dissected-arm">
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0 0 0 1" />
+    <global offwidth="1920" offheight="1080" elevation="-90" azimuth="90" />
+    <quality shadowsize="2048" />
+    <headlight ambient="0.3 0.3 0.3" diffuse="0.8 0.8 0.8" specular="0.4 0.4 0.4" />
+  </visual>
+
+  <asset>
+    <material name="arm_mat" rgba="0.8 0.7 0.6 1" specular="0.1" shininess="0.1" reflectance="0" />
+    <material name="tendon_mat" rgba="1 1 1 1" specular="0" shininess="0" reflectance="0"
+      emission="0.2" />
+  </asset>
+
+  <default>
+    <joint stiffness="0" damping="1" />
+    <muscle ctrllimited="true" ctrlrange="0 1" vmax="1.2" fpmax="1.4" timeconst=".01 .04" />
+    <geom material="arm_mat" />
+    <tendon material="tendon_mat" limited="false" width="0.008" />
+  </default>
+
+  <worldbody>
+
+    <!-- DELTOID -->
+    <body pos="-.6 -.025 0">
+      <site name="deltoid_origin" pos="0 .025 0" size="0.01" />
+      <geom name="deltoid_plate_static" type="box" size=".1 .025 0.1" density="5000" rgba="1 1 1 1" />
+      <body pos="0 .15 0">
+        <site name="deltoid_insert" pos="0 -.025 0" size="0.01" />
+        <geom name="deltoid_plate_movable" type="box" size=".1 .025 0.1" density="5000"
+          rgba="1 0 1 1" />
+        <joint name="deltoid_joint"
+          pos="0 .55 0"
+          type="slide"
+          axis="0 1 0"
+          damping="0"
+          limited="true"
+          range="0 .5" />
+      </body>
+    </body>
+
+    <!-- LATISSIMUS -->
+    <body pos="-.2 -.025 0">
+      <site name="latissimus_origin" pos="0 .025 0" size="0.01" />
+      <geom name="latissimus_plate_static" type="box" size=".1 .025 0.1" density="5000"
+        rgba="1 1 1 1" />
+      <body pos="0 .15 0">
+        <site name="latissimus_insert" pos="0 -.025 0" size="0.01" />
+        <geom name="latissimus_plate_movable" type="box" size=".1 .025 0.1" density="5000"
+          rgba="1 1 0 1" />
+        <joint name="latissimus_joint"
+          pos="0 .55 0"
+          type="slide"
+          axis="0 1 0"
+          damping="0"
+          limited="true"
+          range="0 .5" />
+      </body>
+    </body>
+
+    <!-- BICEPS -->
+    <body pos=".2 -.025 0">
+      <site name="biceps_origin" pos="0 .025 0" size="0.01" />
+      <geom name="biceps_plate_static" type="box" size=".1 .025 0.1" density="5000" rgba="1 1 1 1" />
+      <body pos="0 .15 0">
+        <site name="biceps_insert" pos="0 -.025 0" size="0.01" />
+        <geom name="biceps_plate_movable" type="box" size=".1 .025 0.1" density="5000"
+          rgba="1 0 0 1" />
+        <joint name="biceps_joint"
+          pos="0 .55 0"
+          type="slide"
+          axis="0 1 0"
+          damping="0"
+          limited="true"
+          range="0 .5" />
+      </body>
+    </body>
+
+    <!-- TRICEPS -->
+    <body pos=".6 -.025 0">
+      <site name="triceps_origin" pos="0 .025 0" size="0.01" />
+      <geom name="triceps_plate_static" type="box" size=".1 .025 0.1" density="5000" rgba="1 1 1 1" />
+      <body pos="0 .15 0">
+        <site name="triceps_insert" pos="0 -.025 0" size="0.01" />
+        <geom name="triceps_plate_movable" type="box" size=".1 .025 0.1" density="5000"
+          rgba="0 1 0 1" />
+        <joint name="triceps_joint" 
+          pos="0 .55 0" 
+          type="slide" 
+          axis="0 1 0" 
+          damping="0" 
+          limited="true"
+          range="0 .5" />
+      </body>
+    </body>
+  </worldbody>
+
+  <tendon>
+    <spatial name="deltoid_tendon" rgba="1 0 1 1">
+      <site site="deltoid_origin" />
+      <site site="deltoid_insert" />
+    </spatial>
+    <spatial name="latissimus_tendon" rgba="1 1 0 1">
+      <site site="latissimus_origin" />
+      <site site="latissimus_insert" />
+    </spatial>
+    <spatial name="biceps_tendon" rgba="1 0 0 1">
+      <site site="biceps_origin" />
+      <site site="biceps_insert" />
+    </spatial>
+    <spatial name="triceps_tendon" rgba="0 1 0 1">
+      <site site="triceps_origin" />
+      <site site="triceps_insert" />
+    </spatial>
+  </tendon>
+
+  <actuator>
+    <velocity name="deltoid_stretcher" joint="deltoid_joint" kv="1000" ctrlrange="-1 1" />
+    <velocity name="latissimus_stretcher" joint="latissimus_joint" kv="1000" ctrlrange="-1 1" />
+    <velocity name="biceps_stretcher" joint="biceps_joint" kv="1000" ctrlrange="-1 1" />
+    <velocity name="triceps_stretcher" joint="triceps_joint" kv="1000" ctrlrange="-1 1" />
+    <muscle name="deltoid" tendon="deltoid_tendon" force="100" />
+    <muscle name="latissimus" tendon="latissimus_tendon" force="100" />
+    <muscle name="biceps" tendon="biceps_tendon" force="100" />
+    <muscle name="triceps" tendon="triceps_tendon" force="100" />
+  </actuator>
+
+  <sensor>
+    <actuatorpos name="deltoid_length" actuator="deltoid" />
+    <actuatorpos name="latissimus_length" actuator="latissimus" />
+    <actuatorpos name="biceps_length" actuator="biceps" />
+    <actuatorpos name="triceps_length" actuator="triceps" />
+    <actuatorvel name="deltoid_velocity" actuator="deltoid" />
+    <actuatorvel name="latissimus_velocity" actuator="latissimus" />
+    <actuatorvel name="biceps_velocity" actuator="biceps" />
+    <actuatorvel name="triceps_velocity" actuator="triceps" />
+    <actuatorfrc name="deltoid_force" actuator="deltoid" />
+    <actuatorfrc name="latissimus_force" actuator="latissimus" />
+    <actuatorfrc name="biceps_force" actuator="biceps" />
+    <actuatorfrc name="triceps_force" actuator="triceps" />
+  </sensor>
+</mujoco>

@@ -529,14 +529,14 @@ def main():
         eval_interval=10,
         chunk_size_multiplier=4,
         keep_last_n_checkpoints=5,
-        seed=42,
+        seed=None,
     )
     env_config = EnvConfig(
         loss_weights={"distance": 1.0, "energy": 0.05},
         randomize_gravity=False,
     )
     rnn_config = RNNConfig(
-        rnn_class=AlphaOnlyRNN,  # Change to AlphaOnlyRNN or FullRNN
+        rnn_class=FullRNN,  # Change to AlphaOnlyRNN or FullRNN
         hidden_size=25,
         tau=10e-3,
         activation=tanh,

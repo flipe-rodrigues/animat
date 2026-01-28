@@ -1,4 +1,4 @@
-<mujoco model="two-joint-arm">
+<mujoco model="planar-arm">
 
   <visual>
     <map force="0.1" zfar="30" />
@@ -15,10 +15,10 @@
   </asset>
 
   <default>
-    <joint stiffness="5" damping="1" />
+    <joint stiffness="0" damping="1" />
     <muscle ctrllimited="true" ctrlrange="0 1" vmax="1.2" fpmax="1.4" timeconst=".01 .04" />
-    <geom density="1200" material="arm_mat" />
-    <tendon material="tendon_mat" />
+    <geom material="arm_mat" />
+    <tendon material="tendon_mat" limited="false" width="0.008" />
   </default>
 
   <worldbody>
@@ -26,8 +26,8 @@
     <body name="trunk" pos="0 0 0">
 
       <!-- tendon attachment sites -->
-      <site name="deltoid_site1" pos=".25 0 0" size="0.01" />
-      <site name="latissimus_site1" pos="-0.25 0 0" size="0.01" />
+      <site name="deltoid_origin" pos=".25 0 0" size="0.01" />
+      <site name="latissimus_origin" pos="-0.25 0 0" size="0.01" />
 
       <!-- UPPER ARM -->
       <body name="upper_arm" pos="0 0 0">
@@ -36,13 +36,13 @@
         <joint name="shoulder" type="hinge" axis="0 0 1" range="-60 60" />
 
         <!-- tendon attachment sites -->
-        <site name="deltoid_site2" pos="0.025 -.1 0" size="0.01" />
-        <site name="latissimus_site2" pos="-0.025 -.1 0" size="0.01" />
-        <site name="biceps_site1" pos="0.05 0 0" size="0.01" />
-        <site name="triceps_site1" pos="-0.05 0 0" size="0.01" />
+        <site name="deltoid_insert" pos="0.025 -.1 0" size="0.01" />
+        <site name="latissimus_insert" pos="-0.025 -.1 0" size="0.01" />
+        <site name="biceps_origin" pos="0.05 0 0" size="0.01" />
+        <site name="triceps_origin" pos="-0.05 0 0" size="0.01" />
 
         <!-- humerus -->
-        <geom name="humerus" type="cylinder" size="0.025" fromto="0 0 0 0 -.4 0" />
+        <geom name="humerus" type="cylinder" size="0.025" fromto="0 0 0 0 -.4 0" mass="1.8" />
 
         <!-- LOWER ARM -->
         <body name="lower_arm" pos="0 -0.4 0">
@@ -50,16 +50,23 @@
           <!-- elbow -->
           <joint name="elbow" type="hinge" axis="0 0 1" range="-60 60" />
 
+          <!-- elbow pulley for muscle wrapping -->
+          <geom name="elbow_pulley"
+            type="cylinder"
+            size="0.02 0.015"
+            pos="0 0 0"
+            rgba="0 0 0 0" />
+
           <!-- tendon attachment sites -->
-          <site name="biceps_site2" pos=".1 .03 0" size="0.01" />
-          <site name="triceps_site2" pos="-.08 0 0" size="0.01" />
+          <site name="biceps_insert" pos=".1 .03 0" size="0.01" />
+          <site name="triceps_insert" pos="-.08 0 0" size="0.01" />
 
           <!-- radius -->
-          <geom name="radius" type="cylinder" size="0.025" fromto="-.075 0 0 .5 0 0" />
+          <geom name="radius" type="cylinder" size="0.025" fromto="-.075 0 0 .5 0 0" mass="1.2" />
 
           <!-- HAND -->
           <body name="hand" pos="0.5 0 0">
-            <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" />
+            <geom name="hand" type="sphere" size="0.05" pos="0 0 0" rgba="1 .25 .25 1" mass="0.4" />
             <site name="nail2" pos="0 0 0" />
           </body>
         </body>
@@ -81,12 +88,12 @@
 
     <!-- PENDULUM -->
     <body name="pendulum_base" pos="0 0.1 .5">
-      <site name="pendulum_site1" pos="0 0 0" size="0.01" />
+      <site name="pendulum_origin" pos="0 0 0" size="0.01" />
     </body>
     <body name="pendulum_bob" pos="0 0.1 0.25">
       <joint type="free" stiffness="0" damping="0" />
       <geom size="0.025" type="sphere" rgba="1 0.66 0 1" />
-      <site name="pendulum_site2" pos="0 0 0" size="0.01" />
+      <site name="pendulum_insert" pos="0 0 0" size="0.01" />
     </body>
   </worldbody>
 
@@ -95,31 +102,27 @@
   </equality>
 
   <tendon>
-    <spatial name="deltoid_tendon" limited="true" range="0 1" width="0.008" rgba="1 0 1 1">
-      <site site="deltoid_site1" />
-      <site site="deltoid_site2" />
+    <spatial name="deltoid_tendon" rgba="1 0 1 1">
+      <site site="deltoid_origin" />
+      <site site="deltoid_insert" />
     </spatial>
-
-    <spatial name="latissimus_tendon" limited="true" range="0 1" width="0.008" rgba="1 1 0 1">
-      <site site="latissimus_site1" />
-      <site site="latissimus_site2" />
+    <spatial name="latissimus_tendon" rgba="1 1 0 1">
+      <site site="latissimus_origin" />
+      <site site="latissimus_insert" />
     </spatial>
-
-    <spatial name="biceps_tendon" limited="true" range="0 .485" width="0.008" rgba="1 0 0 1">
-      <site site="biceps_site1" />
-      <geom geom="humerus" />
-      <site site="biceps_site2" />
+    <spatial name="biceps_tendon" rgba="1 0 0 1">
+      <site site="biceps_origin" />
+      <geom geom="elbow_pulley" />
+      <site site="biceps_insert" />
     </spatial>
-
-    <spatial name="triceps_tendon" limited="true" range="0 .5" width="0.008" rgba="0 1 0 1">
-      <site site="triceps_site1" />
+    <spatial name="triceps_tendon" rgba="0 1 0 1">
+      <site site="triceps_origin" />
       <geom geom="radius" />
-      <site site="triceps_site2" />
+      <site site="triceps_insert" />
     </spatial>
-
-    <spatial limited="true" range="0 0.25" width="0.001">
-      <site site="pendulum_site1" />
-      <site site="pendulum_site2" />
+    <spatial range="0 0.25" limited="true" width="0.001">
+      <site site="pendulum_origin" />
+      <site site="pendulum_insert" />
     </spatial>
   </tendon>
 

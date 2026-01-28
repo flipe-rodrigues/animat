@@ -17,7 +17,6 @@
     <body name="passive_plate" pos="0 -.025 0">
       <site name="extrafusal_site1" pos="0 .025 0" size="0.025" />
       <geom name="passive_plate" type="box" size=".25 .025 0.25" density="300" rgba="1 1 1 1" />
-
       <body name="active_plate" pos="0 .15 0">
         <site name="extrafusal_site2" pos="0 -.025 0" size="0.025" />
         <geom name="active_plate" type="box" size=".25 .025 0.25" density="300" rgba="1 0 0 1" /> 
