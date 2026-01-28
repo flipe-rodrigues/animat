@@ -154,7 +154,16 @@ class SequentialReachingEnv:
     .########....###....##.....##.########..#######..##.....##....##....########
     """
 
-    def evaluate(self, rnn, plant, target_encoder, seed=0, render=False, render_speed=1.0, log=False):
+    def evaluate(
+        self,
+        rnn,
+        plant,
+        target_encoder,
+        seed=0,
+        render=False,
+        render_speed=1.0,
+        log=False,
+    ):
         """
         Evaluate fitness of a given RNN policy.
 
@@ -174,7 +183,9 @@ class SequentialReachingEnv:
 
             start = time.perf_counter()
 
-        result = self._evaluate_impl(rnn, plant, target_encoder, seed, render, render_speed, log)
+        result = self._evaluate_impl(
+            rnn, plant, target_encoder, seed, render, render_speed, log
+        )
 
         if self.profile:
             elapsed = time.perf_counter() - start
@@ -183,7 +194,9 @@ class SequentialReachingEnv:
 
         return result
 
-    def _evaluate_impl(self, rnn, plant, target_encoder, seed, render, render_speed, log):
+    def _evaluate_impl(
+        self, rnn, plant, target_encoder, seed, render, render_speed, log
+    ):
         """Internal evaluation implementation"""
         np.random.seed(seed)
 
@@ -204,7 +217,14 @@ class SequentialReachingEnv:
 
         # Run evaluation
         total_reward = self._run_simulation(
-            rnn, plant, target_encoder, schedule, reward_calculator, render, render_speed, log
+            rnn,
+            plant,
+            target_encoder,
+            schedule,
+            reward_calculator,
+            render,
+            render_speed,
+            log,
         )
 
         # Finalize logging
@@ -233,7 +253,15 @@ class SequentialReachingEnv:
         return TargetSchedule(target_positions, target_durations, itis)
 
     def _run_simulation(
-        self, rnn, plant, target_encoder, schedule, reward_calculator, render, render_speed, log
+        self,
+        rnn,
+        plant,
+        target_encoder,
+        schedule,
+        reward_calculator,
+        render,
+        render_speed,
+        log,
     ):
         """Main simulation loop"""
         total_reward = 0.0
@@ -242,7 +270,7 @@ class SequentialReachingEnv:
 
         while target_idx < schedule.num_targets:
             if render:
-                plant.render()
+                plant.render(render_speed)
 
             # Update target state
             target_idx = self._update_target_state(plant, schedule, target_idx)
