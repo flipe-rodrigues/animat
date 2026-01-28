@@ -119,6 +119,12 @@ def create_configs_for_workers(
     rnn_config: RNNConfig,
     env_config: EnvConfig,
 ) -> tuple[Dict, Dict]:
+    """
+    Create configuration dictionaries for worker initialization.
+    
+    This creates lightweight config dicts that workers use to initialize
+    their own plant, encoder, and RNN instances.
+    """
     workspace_bounds = reacher.get_workspace_bounds()
 
     rnn_config_dict = {
@@ -157,6 +163,12 @@ def create_configs_for_workers(
 
 
 def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
+    """
+    Setup main process components for evaluation and checkpointing.
+    
+    These components are used in the main process for periodic evaluations
+    and visualizations, not for parallel training.
+    """
     # Create plant
     reacher = SequentialReacher(plant_xml_file=env_config.plant_xml_file)
 
@@ -184,10 +196,8 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
         use_bias=rnn_config.use_bias,
     )
 
-    # Create evaluation environment
+    # Create lightweight evaluation environment
     eval_env = SequentialReachingEnv(
-        plant=reacher,
-        target_encoder=target_encoder,
         target_duration_distro=env_config.target_duration_distro,
         iti_distro=env_config.iti_distro,
         num_targets=env_config.num_targets,
@@ -212,6 +222,7 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
 def evaluate_population(
     pool: Pool, population, generation: int, chunk_size: int, seed: Optional[int] = None
 ):
+    """Evaluate entire population in parallel"""
     args_list = [
         (params, generation if seed is None else seed) for params in population
     ]
@@ -227,6 +238,7 @@ def print_generation_stats(
     pop_size: int,
     metrics: PerformanceMetrics,
 ):
+    """Print formatted generation statistics"""
     best_loss = min(losses)
     mean_loss = np.mean(losses)
     std_loss = np.std(losses)
@@ -248,16 +260,32 @@ def print_generation_stats(
 def evaluate_best_solution(
     optimizer: CMA,
     rnn: NeuroMuscularRNN,
+    plant: SequentialReacher,
+    target_encoder: GridTargetEncoder,
     eval_env: SequentialReachingEnv,
     verbose: bool = True,
     seed: int = 42,
 ):
+    """
+    Evaluate and visualize the best solution.
+    
+    Now passes plant and encoder as arguments to evaluate().
+    """
     best_rnn = rnn.from_params(optimizer.mean)
 
     if verbose:
         print(f"  → Evaluating best solution...")
 
-    eval_loss = -eval_env.evaluate(best_rnn, seed=seed, render=True, log=True)
+    # Pass plant and encoder as arguments
+    eval_loss = -eval_env.evaluate(
+        best_rnn, 
+        plant,
+        target_encoder,
+        seed=seed, 
+        render=True, 
+        render_speed=10.0,
+        log=True
+    )
 
     if verbose:
         print(f"  → Evaluation loss: {eval_loss:.3f}")
@@ -273,6 +301,7 @@ def save_checkpoint(
     rnn_class_name: str,
     checkpoint_dir: str,
 ):
+    """Save training checkpoint"""
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     checkpoint = {
@@ -299,6 +328,7 @@ def save_checkpoint(
 
 
 def cleanup_old_checkpoints(checkpoint_dir: str, keep_last_n: int = 5):
+    """Remove old checkpoints, keeping only the most recent N"""
     if not os.path.exists(checkpoint_dir):
         return
 
@@ -345,11 +375,12 @@ def train(
     rnn_config: RNNConfig,
     resume_from: Optional[str] = None,
 ):
+    """Main training loop with parallel CMA-ES"""
     print("=" * 80)
     print("PARALLEL CMA-ES TRAINING")
     print("=" * 80)
 
-    # Setup components
+    # Setup main process components
     reacher, target_encoder, rnn, eval_env = setup_components(env_config, rnn_config)
 
     # Create configuration dictionaries for workers
@@ -428,7 +459,8 @@ def train(
             # Periodic evaluation
             if generation % training_config.eval_interval == 0:
                 evaluate_best_solution(
-                    optimizer, rnn, eval_env, seed=training_config.seed
+                    optimizer, rnn, reacher, target_encoder, eval_env, 
+                    seed=training_config.seed
                 )
 
             # Save checkpoints
@@ -462,7 +494,7 @@ def train(
         print("\nCleaning up...")
         pool.close()
         pool.join()
-        eval_env.plant.close()
+        reacher.close()
         print("Done!")
 
         # Final statistics

@@ -123,7 +123,7 @@ class NeuroMuscularRNN:
         self._init_biases() if use_bias else self._set_empty_biases()
 
         # Set initialization function
-        self.init_fcn = he_init if activation == relu else xavier_init
+        self.weight_init_fcn = he_init if activation == relu else xavier_init
 
         # Initialize values and state
         self.init_weight_values()
@@ -174,7 +174,7 @@ class NeuroMuscularRNN:
     def init_weight_values(self):
         """Initialize all weight matrices, clipping to respect bounds"""
         for weight_matrix in self.weights.values():
-            weights = self.init_fcn(
+            weights = self.weight_init_fcn(
                 n_in=weight_matrix.shape[1], n_out=weight_matrix.shape[0]
             )
             # Only clip if bounds are finite
@@ -297,6 +297,7 @@ class AlphaOnlyRNN(NeuroMuscularRNN):
 
         return self.a
 
+
 """
 .########.##.....##.##.......##......
 .##.......##.....##.##.......##......
@@ -306,6 +307,8 @@ class AlphaOnlyRNN(NeuroMuscularRNN):
 .##.......##.....##.##.......##......
 .##........#######..########.########
 """
+
+
 class FullRNN(NeuroMuscularRNN):
     """Full RNN with hidden layer, gamma motoneurons, and alpha motoneurons"""
 

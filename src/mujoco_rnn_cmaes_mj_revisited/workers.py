@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import logging
 from functools import wraps
@@ -9,7 +10,7 @@ from environments import SequentialReachingEnv
 _worker_reacher = None
 _worker_encoder = None
 _worker_rnn = None
-_worker_env_config = None
+_worker_env = None
 
 # Setup logging (only warnings and errors)
 logging.basicConfig(
@@ -46,7 +47,7 @@ def init_worker(rnn_config_dict, env_config_dict):
         rnn_config_dict: RNN architecture configuration (includes 'rnn_class')
         env_config_dict: Environment configuration
     """
-    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env_config
+    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env
 
     try:
         # Extract the RNN class from the config
@@ -61,8 +62,11 @@ def init_worker(rnn_config_dict, env_config_dict):
         # Create RNN template using the specified class
         _worker_rnn = rnn_class(**rnn_config_dict)
 
-        # Store env config for creating lightweight env wrappers
-        _worker_env_config = env_config_dict["env"]
+        # Create lightweight environment wrapper (now it's cheap!)
+        # This only stores configuration, not plant/encoder instances
+        _worker_env = SequentialReachingEnv(**env_config_dict["env"])
+
+        logging.info(f"Worker {os.getpid() if 'os' in dir() else '?'} initialized successfully")
 
     except Exception as e:
         logging.error(f"Worker initialization failed: {e}", exc_info=True)
@@ -84,27 +88,29 @@ def evaluate_worker(params, seed):
     Returns:
         loss: Negative fitness (to minimize)
     """
-    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env_config
+    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env
 
     # Set random seed for reproducibility
     np.random.seed(seed)
 
     # Update RNN parameters (lightweight operation)
     _worker_rnn.set_params(params)
-    _worker_rnn.reset_state()  # Use reset_state() instead of init_state()
+    _worker_rnn.reset_state()
 
     # Reset plant state (lightweight operation)
     _worker_reacher.reset()
     _worker_reacher.disable_target()
 
-    # Create lightweight environment wrapper
-    # This only wraps existing objects, doesn't recreate them
-    env = SequentialReachingEnv(
-        plant=_worker_reacher, target_encoder=_worker_encoder, **_worker_env_config
+    # Evaluate fitness using persistent environment
+    # Now we pass plant and encoder as arguments instead of recreating env
+    loss = -_worker_env.evaluate(
+        _worker_rnn, 
+        _worker_reacher,
+        _worker_encoder,
+        seed=seed, 
+        render=False, 
+        log=False
     )
-
-    # Evaluate fitness
-    loss = -env.evaluate(_worker_rnn, seed=seed, render=False, log=False)
 
     return loss
 
@@ -115,7 +121,7 @@ def cleanup_worker():
 
     Called when worker process is terminating.
     """
-    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env_config
+    global _worker_reacher, _worker_encoder, _worker_rnn, _worker_env
 
     if _worker_reacher is not None:
         try:
@@ -127,7 +133,7 @@ def cleanup_worker():
     _worker_reacher = None
     _worker_encoder = None
     _worker_rnn = None
-    _worker_env_config = None
+    _worker_env = None
 
 
 # Optional: Shared memory implementation for very large populations
@@ -162,6 +168,7 @@ if SHARED_MEMORY_AVAILABLE:
             _shared_params_array = np.ndarray(
                 (pop_size, param_size), dtype=np.float64, buffer=_shared_params_shm.buf
             )
+            logging.info("Shared memory attached successfully")
         except Exception as e:
             logging.error(f"Failed to attach to shared memory: {e}")
             raise

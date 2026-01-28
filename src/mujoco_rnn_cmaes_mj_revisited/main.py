@@ -52,7 +52,7 @@ if __name__ == "__main__":
         hidden_size=25,
         output_size=reacher.num_actuators,
         hidden_activation=tanh,
-        smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
+        tau=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
     )
 
     # Initialize the environment/task
@@ -139,7 +139,7 @@ rnn = NeuroMuscularRNN(
     hidden_size=25,
     output_size=reacher.num_actuators,
     hidden_activation=tanh,
-    smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
+    tau=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
 )
 
 rl_config = RLConfig(num_iterations=1000, lr_actor=3e-4, buffer_size=2048)

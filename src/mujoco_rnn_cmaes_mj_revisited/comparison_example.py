@@ -82,7 +82,7 @@ def create_rnn(reacher, target_encoder):
         hidden_size=25,
         output_size=reacher.num_actuators,
         hidden_activation=tanh,
-        smoothing_factor=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
+        tau=alpha_from_tau(tau=10e-3, dt=reacher.model.opt.timestep),
     )
     return rnn
 
