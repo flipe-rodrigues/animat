@@ -42,7 +42,7 @@ class TrainingConfig:
     initial_sigma: float = 1.3
     checkpoint_interval: int = 1000
     eval_interval: int = 10
-    num_workers: int = mp.cpu_count()
+    num_workers: int = mp.cpu_count() - 1
     checkpoint_dir: str = "../../models"
     chunk_size_multiplier: int = 4
     keep_last_n_checkpoints: int = 5
@@ -71,7 +71,14 @@ class EnvConfig:
         default_factory=lambda: {"mean": 3, "min": 1, "max": 6}
     )
     iti_distro: Dict = field(default_factory=lambda: {"mean": 1, "min": 0, "max": 3})
-    loss_weights: Dict = field(default_factory=lambda: {"distance": 1.0, "energy": 0.1})
+    loss_weights: Dict = field(
+        default_factory=lambda: {
+            "distance": 1.0,
+            "energy": 0.1,
+            "ridge": 0.001,
+            "lasso": 0.001,
+        }
+    )
 
 
 @dataclass
@@ -121,7 +128,7 @@ def create_configs_for_workers(
 ) -> tuple[Dict, Dict]:
     """
     Create configuration dictionaries for worker initialization.
-    
+
     This creates lightweight config dicts that workers use to initialize
     their own plant, encoder, and RNN instances.
     """
@@ -136,8 +143,10 @@ def create_configs_for_workers(
         "hidden_size": rnn_config.hidden_size,
         "output_size": reacher.num_actuators,
         "activation": rnn_config.activation,
-        "smoothing_factor": alpha_from_tau(
-            tau=rnn_config.tau, dt=reacher.model.opt.timestep
+        "smoothing_factor": (
+            1.0
+            if rnn_config.tau == 0
+            else alpha_from_tau(tau=rnn_config.tau, dt=reacher.model.opt.timestep)
         ),
         "use_bias": rnn_config.use_bias,
     }
@@ -165,7 +174,7 @@ def create_configs_for_workers(
 def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
     """
     Setup main process components for evaluation and checkpointing.
-    
+
     These components are used in the main process for periodic evaluations
     and visualizations, not for parallel training.
     """
@@ -190,8 +199,10 @@ def setup_components(env_config: EnvConfig, rnn_config: RNNConfig):
         hidden_size=rnn_config.hidden_size,
         output_size=reacher.num_actuators,
         activation=rnn_config.activation,
-        smoothing_factor=alpha_from_tau(
-            tau=rnn_config.tau, dt=reacher.model.opt.timestep
+        smoothing_factor=(
+            1.0
+            if rnn_config.tau == 0
+            else alpha_from_tau(tau=rnn_config.tau, dt=reacher.model.opt.timestep)
         ),
         use_bias=rnn_config.use_bias,
     )
@@ -268,7 +279,7 @@ def evaluate_best_solution(
 ):
     """
     Evaluate and visualize the best solution.
-    
+
     Now passes plant and encoder as arguments to evaluate().
     """
     best_rnn = rnn.from_params(optimizer.mean)
@@ -278,13 +289,13 @@ def evaluate_best_solution(
 
     # Pass plant and encoder as arguments
     eval_loss = -eval_env.evaluate(
-        best_rnn, 
+        best_rnn,
         plant,
         target_encoder,
-        seed=seed, 
-        render=True, 
+        seed=seed,
+        render=True,
         render_speed=10.0,
-        log=True
+        log=True,
     )
 
     if verbose:
@@ -459,8 +470,12 @@ def train(
             # Periodic evaluation
             if generation % training_config.eval_interval == 0:
                 evaluate_best_solution(
-                    optimizer, rnn, reacher, target_encoder, eval_env, 
-                    seed=training_config.seed
+                    optimizer,
+                    rnn,
+                    reacher,
+                    target_encoder,
+                    eval_env,
+                    seed=training_config.seed,
                 )
 
             # Save checkpoints
@@ -523,6 +538,7 @@ def train(
 
 def main():
     training_config = TrainingConfig(
+        num_workers=1,
         num_generations=10000,
         initial_sigma=1.3,
         checkpoint_interval=1000,
@@ -533,13 +549,13 @@ def main():
     )
     env_config = EnvConfig(
         # plant_xml_file="C:\\Users\\flipe\\Documents\\GitHub\\myosuite\\myosuite\\simhive\\myo_sim\\arm\\myoarm.xml",
-        loss_weights={"distance": 1.0, "energy": 0.05},
+        loss_weights={"distance": 1.0, "energy": 0.05, "ridge": 0.001, "lasso": 0.001},
         randomize_gravity=False,
     )
     rnn_config = RNNConfig(
-        rnn_class=FullRNN,  # Change to AlphaOnlyRNN or FullRNN
+        rnn_class=AlphaOnlyRNN,  # Change to AlphaOnlyRNN or FullRNN
         hidden_size=25,
-        tau=10e-3,
+        tau=0,
         activation=tanh,
         use_bias=True,
     )

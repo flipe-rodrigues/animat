@@ -180,7 +180,7 @@ def l1_norm(x: np.ndarray) -> float:
 
 def l2_norm(x: np.ndarray) -> float:
     """L2 (Euclidean) norm"""
-    return np.sqrt(np.sum(np.square(x)))
+    return np.sqrt(np.sum(x**2))
 
 
 def normalize01(

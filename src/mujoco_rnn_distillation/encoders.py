@@ -16,7 +16,6 @@ class TargetEncoder(ABC):
         self.size = size
         self.x_bounds = x_bounds
         self.y_bounds = y_bounds
-        self.activations = np.zeros(size)
 
     @abstractmethod
     def encode(self, x: float, y: float):
@@ -94,8 +93,7 @@ class GridTargetEncoder(TargetEncoder):
             Grid of activation values (grid_size x grid_size)
         """
         dist_sq = (self.x_grid - x) ** 2 + (self.y_grid - y) ** 2
-        self.activations = np.exp(-dist_sq * self._inv_2sigma_sq)
-        return self.activations
+        return np.exp(-dist_sq * self._inv_2sigma_sq)  # Multiply instead of divide
 
     def visualize(self, x: float, y: float, figsize: Tuple[int, int] = (12, 5)):
         """

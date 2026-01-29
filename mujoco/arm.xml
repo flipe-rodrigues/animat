@@ -53,9 +53,9 @@
           <!-- elbow pulley for muscle wrapping -->
           <geom name="elbow_pulley"
             type="cylinder"
-            size="0.02 0.015"
-            pos="0 0 0"
-            rgba="0 0 0 0" />
+            size="0.025 0.025"
+            pos="0 0 0"/>
+            
 
           <!-- tendon attachment sites -->
           <site name="biceps_insert" pos=".1 .03 0" size="0.01" />

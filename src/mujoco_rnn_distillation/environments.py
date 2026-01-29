@@ -293,6 +293,8 @@ class SequentialReachingEnv:
         log_idx = 0
 
         while target_idx < schedule.num_targets:
+            if render:
+                plant.render(render_speed)
 
             # Update target state
             target_idx = self._update_target_state(plant, schedule, target_idx)
@@ -322,10 +324,6 @@ class SequentialReachingEnv:
             reward = reward_calculator.compute(distance, energy, ridge, lasso)
             total_reward += reward
 
-            # Rendering
-            if render:
-                plant.render(render_speed, encoder=target_encoder)
-
             # Logging
             if log:
                 log_idx = self._log_step(
@@ -342,7 +340,6 @@ class SequentialReachingEnv:
                 )
         if render:
             plant.close()
-        
         return total_reward
 
     def _update_target_state(self, plant, schedule, target_idx):

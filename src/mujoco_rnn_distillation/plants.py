@@ -188,7 +188,7 @@ class SequentialReacher:
 
     def get_target_pos(self) -> np.ndarray:
         """Get current target position (copy)"""
-        return self.data.mocap_pos[0]
+        return self.data.mocap_pos[0].copy()
 
     def get_len_obs(self) -> np.ndarray:
         """
@@ -229,7 +229,7 @@ class SequentialReacher:
 
     def get_hand_pos(self) -> np.ndarray:
         """Get hand (end effector) position (copy)"""
-        return self.data.geom_xpos[self.hand_id]
+        return self.data.geom_xpos[self.hand_id].copy()
 
     def get_gravity(self) -> np.ndarray:
         """Get current gravity vector (copy)"""
@@ -272,7 +272,7 @@ class SequentialReacher:
         self.data.ctrl[:] = ctrl
         mujoco.mj_step(self.model, self.data)
 
-    def render(self, render_speed: float = 1.0, encoder: Optional[object] = None):
+    def render(self, render_speed: float = 1.0):
         """Render simulation (creates viewer on first call)"""
         if self.viewer is None:
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
@@ -282,59 +282,10 @@ class SequentialReacher:
             self.viewer.cam.lookat[:] = [0, -0.25, 0]
             self.viewer.cam.azimuth = 90
             self.viewer.cam.elevation = -90
-            if encoder is not None:
-                self._init_activity_spheres(
-                    grid_size=encoder.grid_size,
-                    x_bounds=encoder.x_bounds,
-                    y_bounds=encoder.y_bounds,
-                )
         else:
             if self.viewer.is_running():
-                if encoder is not None:
-                    a_max = encoder.activations.max() + 1e-6
-
-                    for i, j, geom in self.activity_geoms:
-                        geom.rgba[:] = self._activation_to_rgba(
-                            encoder.activations[j, i], a_max
-                        )
                 self.viewer.sync()
                 time.sleep(self.model.opt.timestep / render_speed)
-
-    def _init_activity_spheres(self, grid_size, x_bounds, y_bounds, z=0.05):
-        """
-        Create a grid of sphere geoms in viewer.user_scn
-        """
-        self.activity_geoms = []
-
-        xs = np.linspace(x_bounds[0], x_bounds[1], grid_size)
-        ys = np.linspace(y_bounds[0], y_bounds[1], grid_size)
-
-        for i, x in enumerate(xs):
-            for j, y in enumerate(ys):
-                geom = mujoco.mjvGeom()
-                mujoco.mjv_defaultGeom(geom)
-
-                geom.type = mujoco.mjtGeom.mjGEOM_SPHERE
-                geom.size[:] = [0.015, 0, 0]  # radius
-                geom.pos[:] = [x, y, z]
-                geom.rgba[:] = [0, 0, 0, 1]  # start inactive (black)
-
-                self.viewer.user_scn.geoms.append(geom)
-                self.activity_geoms.append((i, j, geom))
-
-    def _activation_to_rgba(self, a, a_max=1.0):
-        """
-        Map activation in [0, a_max] to color.
-        """
-        a = np.clip(a / a_max, 0.0, 1.0)
-
-        # simple "hot" style map: black → red → yellow
-        r = a
-        g = a * 0.6
-        b = 0.0
-        alpha = 1.0
-
-        return [r, g, b, alpha]
 
     def get_force_at_eq(self, eq_name: str) -> np.ndarray:
         """
