@@ -532,6 +532,7 @@ def main():
         seed=None,
     )
     env_config = EnvConfig(
+        # plant_xml_file="C:\\Users\\flipe\\Documents\\GitHub\\myosuite\\myosuite\\simhive\\myo_sim\\arm\\myoarm.xml",
         loss_weights={"distance": 1.0, "energy": 0.05},
         randomize_gravity=False,
     )
