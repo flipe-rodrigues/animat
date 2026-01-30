@@ -35,7 +35,7 @@ data = mujoco.MjData(model)
 num_actuators = model.nu
 hand_id = model.geom("hand").id
 
-dur2run = 3600 * 10  # seconds
+dur2run = 3600  # seconds
 time_data = []
 hand_position_data = {
     "x": [],

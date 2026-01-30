@@ -294,7 +294,7 @@ def evaluate_best_solution(
         target_encoder,
         seed=seed,
         render=True,
-        render_speed=10.0,
+        render_speed=1.0,
         log=True,
     )
 
@@ -538,7 +538,6 @@ def train(
 
 def main():
     training_config = TrainingConfig(
-        num_workers=1,
         num_generations=10000,
         initial_sigma=1.3,
         checkpoint_interval=1000,

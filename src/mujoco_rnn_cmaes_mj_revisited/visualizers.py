@@ -75,7 +75,6 @@ class SequentialReachingVisualizer:
         """Plot all sensor data, distance, energy, and reward"""
         _, axes = plt.subplots(3, 2, figsize=(10, 10))
         self._draw_target_lines(axes)
-        self._draw_target_patches(axes)
 
         # Plot sensors
         self._plot_sensor_group(
@@ -145,7 +144,6 @@ class SequentialReachingVisualizer:
         plt.figure(figsize=(10, 1))
         ax = plt.gca()
         self._draw_target_lines(ax)
-        self._draw_target_patches(ax)
 
         hand_positions = np.array(self.data["hand_position"])
         hand_velocities = np.linalg.norm(np.diff(hand_positions, axis=0), axis=1)
@@ -193,14 +191,6 @@ class SequentialReachingVisualizer:
         for t in target_onset_times:
             for ax in axs:
                 ax.axvline(x=t, color="gray", linestyle="--", linewidth=0.5)
-
-    def _draw_target_patches(self, ax):
-        """Draw shaded patches for target durations"""
-        target_onset_times = self._get_target_onset_times()
-        target_durations = self.data["target_durations"]
-
-        for onset, duration in zip(target_onset_times, target_durations):
-            ax.axvspan(onset, onset + duration, color="gray", alpha=0.1)
 
     def _plot_sensor_group(self, ax, time, sensors, keys, title):
         """Plot a group of related sensors"""

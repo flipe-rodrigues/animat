@@ -292,7 +292,6 @@ class SequentialReacher:
             if self.viewer.is_running():
                 if encoder is not None:
                     a_max = encoder.activations.max() + 1e-6
-
                     for i, j, geom in self.activity_geoms:
                         geom.rgba[:] = self._activation_to_rgba(
                             encoder.activations[j, i], a_max
@@ -301,39 +300,41 @@ class SequentialReacher:
                 time.sleep(self.model.opt.timestep / render_speed)
 
     def _init_activity_spheres(self, grid_size, x_bounds, y_bounds, z=0.05):
-        """
-        Create a grid of sphere geoms in viewer.user_scn
-        """
         self.activity_geoms = []
-
+        scn = self.viewer.user_scn
+        scn.ngeom = 0
+        max_geoms = len(scn.geoms)
+        required_geoms = grid_size * grid_size
+        if required_geoms > max_geoms:
+            raise RuntimeError(
+                f"Too many activity spheres ({required_geoms}) "
+                f"for user_scn (max {max_geoms})"
+            )
         xs = np.linspace(x_bounds[0], x_bounds[1], grid_size)
         ys = np.linspace(y_bounds[0], y_bounds[1], grid_size)
-
+        radius = 0.05
         for i, x in enumerate(xs):
             for j, y in enumerate(ys):
-                geom = mujoco.mjvGeom()
-                mujoco.mjv_defaultGeom(geom)
-
+                geom = scn.geoms[scn.ngeom]
                 geom.type = mujoco.mjtGeom.mjGEOM_SPHERE
-                geom.size[:] = [0.015, 0, 0]  # radius
+                geom.objtype = mujoco.mjtObj.mjOBJ_UNKNOWN
+                geom.objid = 1
+                geom.category = mujoco.mjtCatBit.mjCAT_DECOR
+                geom.size[:] = [radius, 0, 0]
                 geom.pos[:] = [x, y, z]
-                geom.rgba[:] = [0, 0, 0, 1]  # start inactive (black)
-
-                self.viewer.user_scn.geoms.append(geom)
+                geom.rgba[:] = [1, 1, 0, 1]
                 self.activity_geoms.append((i, j, geom))
+                scn.ngeom += 1
 
     def _activation_to_rgba(self, a, a_max=1.0):
         """
         Map activation in [0, a_max] to color.
         """
         a = np.clip(a / a_max, 0.0, 1.0)
-
-        # simple "hot" style map: black → red → yellow
         r = a
         g = a * 0.6
         b = 0.0
         alpha = 1.0
-
         return [r, g, b, alpha]
 
     def get_force_at_eq(self, eq_name: str) -> np.ndarray:
