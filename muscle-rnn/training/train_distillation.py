@@ -23,9 +23,27 @@ from collections import deque
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from envs.reaching_env import ReachingEnv, calibrate_sensors
-from models.controllers import RNNController, MLPController, ModelConfig, create_controller
-from utils.model_parser import parse_mujoco_xml
+from envs.reaching import ReachingEnv
+from models.controllers import RNNController, MLPController, create_controller
+from core.config import ModelConfig
+from envs.plant import parse_mujoco_xml, calibrate_sensors
+from core.constants import (
+    DEFAULT_MLP_HIDDEN_SIZES,
+    DEFAULT_TEACHER_LR,
+    DEFAULT_TEACHER_EPOCHS,
+    DEFAULT_TEACHER_BATCH_SIZE,
+    DEFAULT_TEACHER_DATA_EPISODES,
+    DEFAULT_STUDENT_LR,
+    DEFAULT_STUDENT_EPOCHS,
+    DEFAULT_STUDENT_BATCH_SIZE,
+    DEFAULT_STUDENT_SEQ_LEN,
+    DEFAULT_ACTION_LOSS_WEIGHT,
+    DEFAULT_HIDDEN_LOSS_WEIGHT,
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_NUM_EVAL_EPISODES,
+    DEFAULT_CHECKPOINT_EVERY,
+    DEFAULT_CALIBRATION_EPISODES,
+)
 
 
 @dataclass
@@ -33,27 +51,27 @@ class DistillationConfig:
     """Configuration for distillation training."""
     # Teacher training (MLP)
     teacher_hidden_sizes: List[int] = None
-    teacher_lr: float = 1e-3
-    teacher_epochs: int = 100
-    teacher_batch_size: int = 64
-    teacher_data_episodes: int = 1000
+    teacher_lr: float = DEFAULT_TEACHER_LR
+    teacher_epochs: int = DEFAULT_TEACHER_EPOCHS
+    teacher_batch_size: int = DEFAULT_TEACHER_BATCH_SIZE
+    teacher_data_episodes: int = DEFAULT_TEACHER_DATA_EPISODES
     
     # Student training (RNN)
-    student_lr: float = 1e-4
-    student_epochs: int = 200
-    student_batch_size: int = 32
-    student_seq_len: int = 50
+    student_lr: float = DEFAULT_STUDENT_LR
+    student_epochs: int = DEFAULT_STUDENT_EPOCHS
+    student_batch_size: int = DEFAULT_STUDENT_BATCH_SIZE
+    student_seq_len: int = DEFAULT_STUDENT_SEQ_LEN
     
     # Loss weights
-    action_loss_weight: float = 1.0
-    hidden_loss_weight: float = 0.1
+    action_loss_weight: float = DEFAULT_ACTION_LOSS_WEIGHT
+    hidden_loss_weight: float = DEFAULT_HIDDEN_LOSS_WEIGHT
     
     # Training parameters
-    max_steps_per_episode: int = 300
-    n_eval_episodes: int = 10
+    max_steps_per_episode: int = DEFAULT_MAX_EPISODE_STEPS
+    n_eval_episodes: int = DEFAULT_NUM_EVAL_EPISODES
     
     # Checkpointing
-    checkpoint_freq: int = 20
+    checkpoint_freq: int = DEFAULT_CHECKPOINT_EVERY
     
     # Paths
     xml_path: str = ""
@@ -61,7 +79,7 @@ class DistillationConfig:
     
     def __post_init__(self):
         if self.teacher_hidden_sizes is None:
-            self.teacher_hidden_sizes = [256, 256, 128]
+            self.teacher_hidden_sizes = list(DEFAULT_MLP_HIDDEN_SIZES)
 
 
 class TrajectoryDataset(Dataset):
@@ -71,7 +89,7 @@ class TrajectoryDataset(Dataset):
         self,
         observations: List[np.ndarray],
         actions: List[np.ndarray],
-        seq_len: int = 50
+        seq_len: int = DEFAULT_STUDENT_SEQ_LEN
     ):
         self.seq_len = seq_len
         
@@ -572,9 +590,9 @@ class DistillationTrainer:
 def run_distillation_training(
     xml_path: str,
     output_dir: str = "outputs/distillation",
-    teacher_epochs: int = 100,
-    student_epochs: int = 200,
-    calibration_episodes: int = 50
+    teacher_epochs: int = DEFAULT_TEACHER_EPOCHS,
+    student_epochs: int = DEFAULT_STUDENT_EPOCHS,
+    calibration_episodes: int = DEFAULT_CALIBRATION_EPISODES // 2
 ) -> Dict[str, Any]:
     """
     Main entry point for distillation training.
@@ -644,8 +662,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Distillation Training for Muscle Arm')
     parser.add_argument('xml_path', help='Path to MuJoCo XML file')
     parser.add_argument('--output-dir', default='outputs/distillation', help='Output directory')
-    parser.add_argument('--teacher-epochs', type=int, default=100, help='Teacher training epochs')
-    parser.add_argument('--student-epochs', type=int, default=200, help='Student training epochs')
+    parser.add_argument('--teacher-epochs', type=int, default=DEFAULT_TEACHER_EPOCHS, help='Teacher training epochs')
+    parser.add_argument('--student-epochs', type=int, default=DEFAULT_STUDENT_EPOCHS, help='Student training epochs')
     
     args = parser.parse_args()
     

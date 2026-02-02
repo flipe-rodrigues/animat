@@ -20,8 +20,16 @@ import pickle
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from envs.reaching_env import ReachingEnv
+from envs.reaching import ReachingEnv
 from models.controllers import RNNController, MLPController, ModelConfig
+from models.modules.target import TargetEncoder
+from core.constants import (
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_CALIBRATION_EPISODES,
+    DEFAULT_TARGET_GRID_SIZE,
+    DEFAULT_TARGET_SIGMA,
+    DEFAULT_VIDEO_FPS,
+)
 
 
 def load_controller(
@@ -60,8 +68,8 @@ def evaluate_controller(
     controller: torch.nn.Module,
     xml_path: str,
     sensor_stats: Dict,
-    n_episodes: int = 100,
-    max_steps: int = 300,
+    num_episodes: int = DEFAULT_CALIBRATION_EPISODES,
+    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
     verbose: bool = True
 ) -> Dict[str, Any]:
     """
@@ -83,7 +91,7 @@ def evaluate_controller(
     final_distances = []
     
     with torch.no_grad():
-        for ep in range(n_episodes):
+        for ep in range(num_episodes):
             obs, info = env.reset()
             controller.init_hidden(1, device)
             
@@ -117,14 +125,14 @@ def evaluate_controller(
             episode_rewards.append(episode_reward)
             
             if verbose and (ep + 1) % 20 == 0:
-                print(f"Episode {ep+1}/{n_episodes}: reward={episode_reward:.2f}, "
+                print(f"Episode {ep+1}/{num_episodes}: reward={episode_reward:.2f}, "
                       f"success_rate={successes/(ep+1):.2%}")
     
     env.close()
     
     results = {
-        'n_episodes': n_episodes,
-        'success_rate': successes / n_episodes,
+        'num_episodes': num_episodes,
+        'success_rate': successes / num_episodes,
         'mean_reward': np.mean(episode_rewards),
         'std_reward': np.std(episode_rewards),
         'mean_length': np.mean(episode_lengths),
@@ -141,10 +149,18 @@ def record_episode(
     controller: torch.nn.Module,
     xml_path: str,
     sensor_stats: Dict,
-    max_steps: int = 300
+    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Record a single episode with full trajectory data.
+    
+    Args:
+        controller: Trained controller
+        xml_path: Path to MuJoCo XML
+        sensor_stats: Sensor normalization stats
+        max_steps: Maximum steps per episode
+        seed: Random seed for reproducibility
     
     Returns:
         Dictionary with observations, actions, rewards, and frames
@@ -153,7 +169,7 @@ def record_episode(
     device = next(controller.parameters()).device
     controller.eval()
     
-    obs, info = env.reset()
+    obs, info = env.reset(seed=seed)
     controller.init_hidden(1, device)
     
     trajectory = {
@@ -217,7 +233,7 @@ def record_episode(
 def save_video(
     frames: List[np.ndarray],
     output_path: str,
-    fps: int = 30
+    fps: int = DEFAULT_VIDEO_FPS
 ):
     """Save frames as video."""
     import cv2
@@ -244,8 +260,8 @@ def plot_trajectory(
     """Plot detailed trajectory analysis."""
     fig = plt.figure(figsize=(16, 12))
     
-    n_steps = len(trajectory['rewards'])
-    time = np.arange(n_steps) * 0.01  # Assuming 10ms timestep
+    num_steps = len(trajectory['rewards'])
+    time = np.arange(num_steps) * 0.01  # Assuming 10ms timestep
     
     # 1. Cumulative reward
     ax1 = fig.add_subplot(3, 3, 1)
@@ -415,7 +431,7 @@ def compare_controllers(
     labels: List[str],
     xml_path: str,
     sensor_stats: Dict,
-    n_episodes: int = 50
+    num_episodes: int = DEFAULT_CALIBRATION_EPISODES // 2
 ) -> Dict[str, Any]:
     """Compare multiple controllers."""
     results = {}
@@ -429,7 +445,7 @@ def compare_controllers(
         
         eval_results = evaluate_controller(
             controller, xml_path, sensor_stats,
-            n_episodes=n_episodes, verbose=False
+            num_episodes=num_episodes, verbose=False
         )
         
         results[label] = eval_results
@@ -524,14 +540,14 @@ def plot_weight_distributions(
     Plot histograms of weight distributions for all layers.
     """
     params = list(controller.named_parameters())
-    n_params = len(params)
+    num_params = len(params)
     
     # Determine grid size
-    n_cols = 4
-    n_rows = (n_params + n_cols - 1) // n_cols
+    num_cols = 4
+    num_rows = (num_params + num_cols - 1) // num_cols
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
-    axes = axes.flatten() if n_params > 1 else [axes]
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=figsize)
+    axes = axes.flatten() if num_params > 1 else [axes]
     
     for idx, (name, param) in enumerate(params):
         ax = axes[idx]
@@ -545,7 +561,7 @@ def plot_weight_distributions(
         ax.tick_params(labelsize=6)
     
     # Hide unused subplots
-    for idx in range(n_params, len(axes)):
+    for idx in range(num_params, len(axes)):
         axes[idx].set_visible(False)
     
     plt.suptitle('Weight Distributions by Layer', fontsize=12)
@@ -589,12 +605,12 @@ def plot_weight_matrices(
         print("No 2D weight matrices found matching criteria")
         return
     
-    n_matrices = len(matrices)
-    n_cols = min(3, n_matrices)
-    n_rows = (n_matrices + n_cols - 1) // n_cols
+    num_matrices = len(matrices)
+    num_cols = min(3, num_matrices)
+    num_rows = (num_matrices + num_cols - 1) // num_cols
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5*n_cols, 4*n_rows))
-    if n_matrices == 1:
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(5*num_cols, 4*num_rows))
+    if num_matrices == 1:
         axes = [axes]
     else:
         axes = axes.flatten()
@@ -613,7 +629,7 @@ def plot_weight_matrices(
         plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     
     # Hide unused subplots
-    for idx in range(n_matrices, len(axes)):
+    for idx in range(num_matrices, len(axes)):
         axes[idx].set_visible(False)
     
     plt.suptitle('Weight Matrices', fontsize=12)
@@ -638,17 +654,19 @@ def plot_reflex_connections(
     Plot the direct reflex connections (Ia->Alpha, II->Alpha) as heatmaps.
     
     These show the strength of monosynaptic stretch reflex pathways.
+    The reflex weights are located at the controller level, not in the motor module.
     """
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     
-    # Find reflex weight matrices
+    # Find reflex weight matrices (at controller level)
     Ia_weights = None
     II_weights = None
     
     for name, param in controller.named_parameters():
-        if 'Ia_to_alpha' in name and 'weight' in name:
+        # Look for controller-level reflex weights (not motor.*)
+        if 'Ia_to_alpha' in name and 'weight' in name and 'motor' not in name:
             Ia_weights = param.data.cpu().numpy()
-        elif 'II_to_alpha' in name and 'weight' in name:
+        elif 'II_to_alpha' in name and 'weight' in name and 'motor' not in name:
             II_weights = param.data.cpu().numpy()
     
     if Ia_weights is None or II_weights is None:
@@ -721,18 +739,18 @@ def plot_sensory_weights(
         print("Sensory weights not found")
         return
     
-    n_muscles = len(Ia_weights)
+    num_muscles = len(Ia_weights)
     
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     
-    x = np.arange(n_muscles)
+    x = np.arange(num_muscles)
     bar_width = 0.6
     
     # Type Ia (velocity)
     axes[0].bar(x, Ia_weights, bar_width, color='orange', edgecolor='black')
     axes[0].axhline(y=0, color='k', linestyle='-', linewidth=0.5)
     axes[0].set_xticks(x)
-    axes[0].set_xticklabels([f'M{i+1}' for i in range(n_muscles)])
+    axes[0].set_xticklabels([f'M{i+1}' for i in range(num_muscles)])
     axes[0].set_xlabel('Muscle')
     axes[0].set_ylabel('Weight')
     axes[0].set_title('Type Ia (Velocity)', fontweight='bold')
@@ -742,7 +760,7 @@ def plot_sensory_weights(
     axes[1].bar(x, II_weights, bar_width, color='blue', edgecolor='black')
     axes[1].axhline(y=0, color='k', linestyle='-', linewidth=0.5)
     axes[1].set_xticks(x)
-    axes[1].set_xticklabels([f'M{i+1}' for i in range(n_muscles)])
+    axes[1].set_xticklabels([f'M{i+1}' for i in range(num_muscles)])
     axes[1].set_xlabel('Muscle')
     axes[1].set_ylabel('Weight')
     axes[1].set_title('Type II (Length)', fontweight='bold')
@@ -752,7 +770,7 @@ def plot_sensory_weights(
     axes[2].bar(x, Ib_weights, bar_width, color='red', edgecolor='black')
     axes[2].axhline(y=0, color='k', linestyle='-', linewidth=0.5)
     axes[2].set_xticks(x)
-    axes[2].set_xticklabels([f'M{i+1}' for i in range(n_muscles)])
+    axes[2].set_xticklabels([f'M{i+1}' for i in range(num_muscles)])
     axes[2].set_xlabel('Muscle')
     axes[2].set_ylabel('Weight')
     axes[2].set_title('Type Ib (Force/GTO)', fontweight='bold')
@@ -789,12 +807,12 @@ def plot_rnn_weights(
         print("RNN weights not found")
         return
     
-    n_weights = len(rnn_weights)
-    n_cols = min(2, n_weights)
-    n_rows = (n_weights + n_cols - 1) // n_cols
+    num_weights = len(rnn_weights)
+    num_cols = min(2, num_weights)
+    num_rows = (num_weights + num_cols - 1) // num_cols
     
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, 5*n_rows))
-    if n_weights == 1:
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(6*num_cols, 5*num_rows))
+    if num_weights == 1:
         axes = [axes]
     else:
         axes = axes.flatten()
@@ -811,7 +829,7 @@ def plot_rnn_weights(
         
         ax.set_title(f"{name}\n{weights.shape}", fontsize=9)
     
-    for idx in range(n_weights, len(axes)):
+    for idx in range(num_weights, len(axes)):
         axes[idx].set_visible(False)
     
     plt.suptitle('RNN Weights', fontsize=12)
@@ -869,7 +887,7 @@ def plot_episode_summary(
     trajectory: Dict[str, Any],
     output_path: Optional[str] = None,
     show: bool = True,
-    figsize: Tuple[int, int] = (16, 14)
+    figsize: Tuple[int, int] = (16, 18)
 ):
     """
     Plot comprehensive episode summary with sensor data, kinematics, and rewards.
@@ -881,36 +899,53 @@ def plot_episode_summary(
         show: Whether to display
         figsize: Figure size
     """
-    n_steps = len(trajectory['rewards'])
-    time = np.arange(n_steps) * 0.01  # Assuming 10ms timestep
+    num_steps = len(trajectory['rewards'])
+    time = np.arange(num_steps) * 0.01  # Assuming 10ms timestep
     
     # Extract data from trajectory
-    obs = trajectory['observations']
-    infos = trajectory['infos'][1:] if len(trajectory['infos']) > n_steps else trajectory['infos']
+    infos = trajectory['infos'][1:] if len(trajectory['infos']) > num_steps else trajectory['infos']
     rewards = trajectory['rewards']
     
     # Determine number of muscles from alpha shape
     if 'alpha' in trajectory and len(trajectory['alpha']) > 0:
-        n_muscles = trajectory['alpha'].shape[1]
+        num_muscles = trajectory['alpha'].shape[1]
     else:
-        n_muscles = 4  # Default
+        num_muscles = 4  # Default
     
-    # Parse observations to get sensor data
-    # Layout: [lengths, velocities, forces, target_grid, phase, time]
-    obs_array = np.array(obs[:n_steps])
+    # Extract proprioceptive data from structured observations in infos
+    # Each info dict contains 'observation' with a structured Observation object
+    lengths_list = []
+    velocities_list = []
+    forces_list = []
+    target_xyz_list = []
     
-    lengths = obs_array[:, :n_muscles]
-    velocities = obs_array[:, n_muscles:2*n_muscles]
-    forces = obs_array[:, 2*n_muscles:3*n_muscles]
+    for info in infos:
+        if 'observation' in info:
+            obs = info['observation']
+            lengths_list.append(obs.proprio.lengths)
+            velocities_list.append(obs.proprio.velocities)
+            forces_list.append(obs.proprio.forces)
+            target_xyz_list.append(obs.target)
+        else:
+            # Fallback for old trajectories without structured observations
+            lengths_list.append(np.zeros(num_muscles))
+            velocities_list.append(np.zeros(num_muscles))
+            forces_list.append(np.zeros(num_muscles))
+            target_xyz_list.append(np.zeros(3))
     
-    # Target grid starts after proprioceptive
-    proprio_dim = 3 * n_muscles
-    # Try to infer target grid size
-    remaining = obs_array.shape[1] - proprio_dim - 4  # -4 for phase(3) + time(1)
-    target_grid_size = int(np.sqrt(remaining)) if remaining > 0 else 5
-    target_dim = target_grid_size ** 2
+    lengths = np.array(lengths_list)
+    velocities = np.array(velocities_list)
+    forces = np.array(forces_list)
+    target_xyz = np.array(target_xyz_list)
     
-    target_encoding = obs_array[:, proprio_dim:proprio_dim + target_dim]
+    # Encode target positions to grid (same as controller does)
+    target_encoder = TargetEncoder(grid_size=4, sigma=0.1)
+    target_encoding = []
+    for xyz in target_xyz:
+        encoded = target_encoder.encode(torch.tensor(xyz, dtype=torch.float32).unsqueeze(0))
+        target_encoding.append(encoded.squeeze(0).numpy())  # Remove batch dim
+    target_encoding = np.array(target_encoding)  # [num_steps, 16]
+    target_dim = target_encoding.shape[1]  # Should be 16 for 4x4 grid
     
     # Extract kinematics from infos
     hand_positions = []
@@ -934,7 +969,7 @@ def plot_episode_summary(
         hand_speed = np.linalg.norm(hand_velocity, axis=1)
         hand_speed = np.concatenate([[0], hand_speed])  # Pad to match length
     else:
-        hand_speed = np.zeros(n_steps)
+        hand_speed = np.zeros(num_steps)
     
     # Compute reward components (approximate based on typical reward function)
     distance_reward = -distances
@@ -945,7 +980,7 @@ def plot_episode_summary(
         alpha = trajectory['alpha']
         energy_penalty = -0.01 * np.sum(alpha ** 2, axis=1)
     else:
-        energy_penalty = np.zeros(n_steps)
+        energy_penalty = np.zeros(num_steps)
     
     # Phase encoding for shading
     phase_map = {'pre_delay': 0, 'reach': 1, 'hold': 2, 'post_delay': 3, 'done': 4}
@@ -959,7 +994,7 @@ def plot_episode_summary(
     
     # Create figure
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(5, 2, hspace=0.35, wspace=0.25)
+    gs = fig.add_gridspec(6, 2, hspace=0.35, wspace=0.25)
     
     def add_phase_shading(ax, phases, time):
         """Add colored background for each phase."""
@@ -979,7 +1014,7 @@ def plot_episode_summary(
     
     # ===== Row 1: Muscle Lengths (Type II input) =====
     ax1 = fig.add_subplot(gs[0, 0])
-    for i in range(n_muscles):
+    for i in range(num_muscles):
         ax1.plot(time, lengths[:, i], label=f'Muscle {i+1}', linewidth=1.5)
     add_phase_shading(ax1, phases, time)
     ax1.set_xlabel('Time (s)')
@@ -990,7 +1025,7 @@ def plot_episode_summary(
     
     # ===== Row 1: Muscle Velocities (Type Ia input) =====
     ax2 = fig.add_subplot(gs[0, 1])
-    for i in range(n_muscles):
+    for i in range(num_muscles):
         ax2.plot(time, velocities[:, i], label=f'Muscle {i+1}', linewidth=1.5)
     add_phase_shading(ax2, phases, time)
     ax2.set_xlabel('Time (s)')
@@ -1001,7 +1036,7 @@ def plot_episode_summary(
     
     # ===== Row 2: Muscle Forces (Type Ib input) =====
     ax3 = fig.add_subplot(gs[1, 0])
-    for i in range(n_muscles):
+    for i in range(num_muscles):
         ax3.plot(time, forces[:, i], label=f'Muscle {i+1}', linewidth=1.5)
     add_phase_shading(ax3, phases, time)
     ax3.set_xlabel('Time (s)')
@@ -1013,8 +1048,8 @@ def plot_episode_summary(
     # ===== Row 2: Target Grid Encoding =====
     ax4 = fig.add_subplot(gs[1, 1])
     # Show as heatmap over time (subsample if needed)
-    n_show = min(100, n_steps)
-    step_indices = np.linspace(0, n_steps-1, n_show, dtype=int)
+    num_show = min(100, num_steps)
+    step_indices = np.linspace(0, num_steps-1, num_show, dtype=int)
     target_subset = target_encoding[step_indices, :]
     
     im = ax4.imshow(target_subset.T, aspect='auto', cmap='viridis',
@@ -1024,8 +1059,40 @@ def plot_episode_summary(
     ax4.set_title('Target Grid Encoding (Gaussian-tuned)', fontweight='bold')
     plt.colorbar(im, ax=ax4, label='Activation')
     
-    # ===== Row 3: Hand Kinematics (velocity + distance) =====
-    ax5 = fig.add_subplot(gs[2, :])
+    # ===== Row 3: Motor Output (full width) =====
+    ax_motor = fig.add_subplot(gs[2, :])
+    
+    # Plot alpha (muscle activations)
+    if 'alpha' in trajectory and len(trajectory['alpha']) > 0:
+        alpha = trajectory['alpha']
+        for i in range(num_muscles):
+            ax_motor.plot(time, alpha[:num_steps, i], 
+                         label=f'α{i+1}', linewidth=1.5, linestyle='-')
+    
+    # Plot gamma_static 
+    if 'gamma_static' in trajectory and len(trajectory['gamma_static']) > 0:
+        gamma_s = trajectory['gamma_static']
+        for i in range(num_muscles):
+            ax_motor.plot(time, gamma_s[:num_steps, i], 
+                         label=f'γs{i+1}', linewidth=1.2, linestyle='--', alpha=0.7)
+    
+    # Plot gamma_dynamic
+    if 'gamma_dynamic' in trajectory and len(trajectory['gamma_dynamic']) > 0:
+        gamma_d = trajectory['gamma_dynamic']
+        for i in range(num_muscles):
+            ax_motor.plot(time, gamma_d[:num_steps, i], 
+                         label=f'γd{i+1}', linewidth=1.2, linestyle=':', alpha=0.7)
+    
+    add_phase_shading(ax_motor, phases, time)
+    ax_motor.set_xlabel('Time (s)')
+    ax_motor.set_ylabel('Activation')
+    ax_motor.set_title('Motor Output: Alpha (α), Gamma Static (γs), Gamma Dynamic (γd)', fontweight='bold')
+    ax_motor.legend(loc='upper right', fontsize=7, ncol=6)
+    ax_motor.grid(True, alpha=0.3)
+    ax_motor.set_ylim(-0.1, 1.1)
+    
+    # ===== Row 4: Hand Kinematics (velocity + distance) =====
+    ax5 = fig.add_subplot(gs[3, :])
     
     # Distance to target
     ln1 = ax5.plot(time, distances, 'b-', linewidth=2, label='Distance to Target')
@@ -1049,8 +1116,8 @@ def plot_episode_summary(
     ax5.set_title('Hand Kinematics: Distance to Target & Speed', fontweight='bold')
     ax5.grid(True, alpha=0.3)
     
-    # ===== Row 4: Reward Components =====
-    ax6 = fig.add_subplot(gs[3, :])
+    # ===== Row 5: Reward Components =====
+    ax6 = fig.add_subplot(gs[4, :])
     
     ax6.plot(time, distance_reward, 'b-', linewidth=1.5, label='Distance Reward', alpha=0.8)
     ax6.plot(time, reach_bonus, 'g-', linewidth=1.5, label='Reach Bonus', alpha=0.8)
@@ -1065,8 +1132,8 @@ def plot_episode_summary(
     ax6.legend(loc='upper right', ncol=4)
     ax6.grid(True, alpha=0.3)
     
-    # ===== Row 5: Cumulative Reward + Phase Timeline =====
-    ax7 = fig.add_subplot(gs[4, 0])
+    # ===== Row 6: Cumulative Reward + Phase Timeline =====
+    ax7 = fig.add_subplot(gs[5, 0])
     ax7.plot(time, np.cumsum(rewards), 'k-', linewidth=2)
     add_phase_shading(ax7, phases, time)
     ax7.set_xlabel('Time (s)')
@@ -1083,8 +1150,8 @@ def plot_episode_summary(
              fontweight='bold', color=result_color, ha='right', va='top',
              bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
     
-    # ===== Row 5: Phase Timeline =====
-    ax8 = fig.add_subplot(gs[4, 1])
+    # ===== Row 6: Phase Timeline =====
+    ax8 = fig.add_subplot(gs[5, 1])
     phase_numeric = [phase_map.get(p, -1) for p in phases]
     ax8.plot(time, phase_numeric, 'k-', linewidth=2, drawstyle='steps-post')
     ax8.fill_between(time, phase_numeric, step='post', alpha=0.3)
@@ -1116,8 +1183,8 @@ def inspect_checkpoint(
     xml_path: str,
     sensor_stats: Optional[Dict] = None,
     output_dir: Optional[str] = None,
-    n_episodes: int = 1,
-    max_steps: int = 300,
+    num_episodes: int = 1,
+    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
     show: bool = True
 ):
     """
@@ -1128,7 +1195,7 @@ def inspect_checkpoint(
         xml_path: Path to MuJoCo XML for running episode
         sensor_stats: Sensor normalization stats (loads from checkpoint dir if None)
         output_dir: Directory to save all plots
-        n_episodes: Number of episodes to record and analyze
+        num_episodes: Number of episodes to record and analyze
         max_steps: Max steps per episode
         show: Whether to display plots
     
@@ -1180,9 +1247,9 @@ def inspect_checkpoint(
         plot_all_weights(controller, str(output_path), show=False)
     
     # 3. Record episode(s) and plot summaries
-    print(f"\nRecording {n_episodes} episode(s)...")
+    print(f"\nRecording {num_episodes} episode(s)...")
     
-    for ep in range(n_episodes):
+    for ep in range(num_episodes):
         trajectory = record_episode(
             controller=controller,
             xml_path=xml_path,

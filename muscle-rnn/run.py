@@ -9,6 +9,10 @@ This script provides a unified interface for:
 - Analyzing model architecture
 """
 
+import os
+# Fix OpenMP duplicate library error on Windows
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+
 import argparse
 import sys
 from pathlib import Path
@@ -18,9 +22,26 @@ import pickle
 # Add package to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.model_parser import parse_mujoco_xml, get_model_dimensions
-from envs.reaching_env import ReachingEnv, calibrate_sensors
-from models.controllers import ModelConfig, RNNController, MLPController
+# Default MuJoCo model path
+DEFAULT_XML_PATH = "mujoco/arm.xml"
+
+from core.config import ModelConfig
+from core.constants import (
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_CALIBRATION_EPISODES,
+    DEFAULT_CALIBRATION_STEPS,
+    DEFAULT_NUM_GENERATIONS,
+    DEFAULT_POPULATION_SIZE,
+    DEFAULT_CMAES_SIGMA,
+    DEFAULT_CHECKPOINT_EVERY,
+    DEFAULT_TEACHER_EPOCHS,
+    DEFAULT_STUDENT_EPOCHS,
+    DEFAULT_VIDEO_FPS,
+    DEFAULT_TARGET_GRID_SIZE,
+)
+from envs.plant import parse_mujoco_xml, get_model_dimensions, calibrate_sensors
+from envs.reaching import ReachingEnv
+from models import RNNController, MLPController, create_controller
 from training.train_cmaes import run_cmaes_training
 from training.train_distillation import run_distillation_training
 from utils.visualization import (
@@ -46,16 +67,16 @@ def cmd_info(args):
 
     print(f"\nTimestep: {parsed.timestep}s")
 
-    print(f"\nJoints ({parsed.n_joints}):")
+    print(f"\nJoints ({parsed.num_joints}):")
     for j in parsed.joints:
         range_str = f"[{j.range[0]:.1f}, {j.range[1]:.1f}]" if j.range else "unlimited"
         print(f"  - {j.name}: {j.joint_type}, range={range_str}")
 
-    print(f"\nMuscles ({parsed.n_muscles}):")
+    print(f"\nMuscles ({parsed.num_muscles}):")
     for m in parsed.muscles:
         print(f"  - {m.name}: force={m.force}N, ctrl_range={m.ctrl_range}")
 
-    print(f"\nSensors ({parsed.n_sensors}):")
+    print(f"\nSensors ({parsed.num_sensors}):")
     for s in parsed.sensors:
         print(f"  - {s.name}: type={s.sensor_type}, target={s.target}")
 
@@ -70,12 +91,14 @@ def cmd_info(args):
 
     # Create model config to show expected observation/action dims
     config = ModelConfig(
-        n_muscles=parsed.n_muscles, n_joints=parsed.n_joints, n_target_units=25
+        num_muscles=parsed.num_muscles,
+        num_sensors=parsed.num_sensors,
+        num_target_units=DEFAULT_TARGET_GRID_SIZE ** 2,
     )
 
     print(f"\nExpected Environment Interface:")
-    print(f"  Observation dim: {config.total_input_dim}")
-    print(f"  Action dim: {config.total_output_dim}")
+    print(f"  Observation dim: {config.input_size}")
+    print(f"  Action dim: {config.action_size}")
 
 
 def cmd_calibrate(args):
@@ -83,7 +106,7 @@ def cmd_calibrate(args):
     print(f"Calibrating sensors for {args.xml_path}...")
 
     stats = calibrate_sensors(
-        args.xml_path, n_episodes=args.episodes, max_steps_per_episode=args.max_steps
+        args.xml_path, num_episodes=args.episodes, max_steps=args.max_steps
     )
 
     output_path = Path(args.output)
@@ -111,8 +134,8 @@ def cmd_train(args):
             num_workers=args.workers,
             use_multiprocessing=not args.no_multiprocessing,
             calibration_episodes=args.calibration_episodes,
-            checkpoint_period=args.checkpoint_period,
-            inspection_period=args.inspection_period,
+            save_checkpoint_every=args.save_checkpoint_every,
+            inspection_every=args.inspection_every,
         )
 
     elif args.method == "distillation":
@@ -139,7 +162,7 @@ def cmd_evaluate(args):
     else:
         print(f"Warning: sensor_stats.pkl not found at {stats_path}")
         print("Running quick calibration...")
-        sensor_stats = calibrate_sensors(args.xml_path, n_episodes=20)
+        sensor_stats = calibrate_sensors(args.xml_path, num_episodes=20)
 
     # Load controller
     controller_type = "mlp" if "mlp" in args.checkpoint.lower() else "rnn"
@@ -156,7 +179,7 @@ def cmd_evaluate(args):
         controller=controller,
         xml_path=args.xml_path,
         sensor_stats=sensor_stats,
-        n_episodes=args.episodes,
+        num_episodes=args.episodes,
         max_steps=args.max_steps,
         verbose=True,
     )
@@ -197,7 +220,7 @@ def cmd_record(args):
             sensor_stats = pickle.load(f)
     else:
         print("Running quick calibration...")
-        sensor_stats = calibrate_sensors(args.xml_path, n_episodes=20)
+        sensor_stats = calibrate_sensors(args.xml_path, num_episodes=20)
 
     # Load controller
     controller_type = "mlp" if "mlp" in args.checkpoint.lower() else "rnn"
@@ -251,7 +274,7 @@ def cmd_inspect(args):
             checkpoint_path=args.checkpoint,
             xml_path=args.xml_path,
             output_dir=args.output_dir,
-            n_episodes=args.episodes if hasattr(args, "episodes") else 1,
+            num_episodes=args.episodes if hasattr(args, "episodes") else 1,
             max_steps=args.max_steps if hasattr(args, "max_steps") else 300,
             show=not args.no_display,
         )
@@ -301,7 +324,7 @@ def cmd_inspect(args):
 
 def cmd_visualize(args):
     """Visualize network activity during simulation."""
-    from utils.network_visualizer import record_episode_with_network
+    from utils.episode_recorder import record_and_save
 
     # Load sensor stats
     stats_path = Path(args.checkpoint).parent / "sensor_stats.pkl"
@@ -310,36 +333,30 @@ def cmd_visualize(args):
             sensor_stats = pickle.load(f)
     else:
         print("Warning: sensor_stats.pkl not found, running calibration...")
-        sensor_stats = calibrate_sensors(args.xml_path, n_episodes=20)
+        sensor_stats = calibrate_sensors(args.xml_path, num_episodes=20)
 
     # Load controller
     controller_type = "mlp" if "mlp" in args.checkpoint.lower() else "rnn"
     controller, config, _ = load_controller(args.checkpoint, controller_type)
 
     print(f"Loaded {controller_type.upper()} controller")
-    print(f"Recording episode with network visualization...")
-
-    trajectory = record_episode_with_network(
+    
+    # Determine output directory
+    if args.output:
+        output_dir = Path(args.output)
+    else:
+        output_dir = Path(args.checkpoint).parent / "visualizations"
+    
+    # Record with unified recorder
+    data = record_and_save(
         controller=controller,
         xml_path=args.xml_path,
         sensor_stats=sensor_stats,
+        output_dir=str(output_dir),
         max_steps=args.max_steps,
-        output_video=args.output,
+        seed=args.seed if hasattr(args, 'seed') else None,
         fps=args.fps,
-        layout=args.layout,
     )
-
-    total_reward = sum(trajectory["rewards"])
-    final_phase = (
-        trajectory["infos"][-1].get("phase", "unknown")
-        if trajectory["infos"]
-        else "unknown"
-    )
-
-    print(f"\nEpisode Summary:")
-    print(f"  Length: {len(trajectory['rewards'])} steps")
-    print(f"  Total Reward: {total_reward:.2f}")
-    print(f"  Final Phase: {final_phase}")
 
 
 def main():
@@ -369,24 +386,24 @@ Examples:
 
     # Info command
     info_parser = subparsers.add_parser("info", help="Show model information")
-    info_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
+    info_parser.add_argument("xml_path", nargs="?", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
 
     # Calibrate command
     cal_parser = subparsers.add_parser("calibrate", help="Calibrate sensors")
-    cal_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
+    cal_parser.add_argument("xml_path", nargs="?", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
     cal_parser.add_argument(
         "--output", "-o", default="sensor_stats.pkl", help="Output path"
     )
     cal_parser.add_argument(
-        "--episodes", type=int, default=100, help="Calibration episodes"
+        "--episodes", type=int, default=DEFAULT_CALIBRATION_EPISODES, help="Calibration episodes"
     )
     cal_parser.add_argument(
-        "--max-steps", type=int, default=200, help="Max steps per episode"
+        "--max-steps", type=int, default=DEFAULT_CALIBRATION_STEPS, help="Max steps per episode"
     )
 
     # Train command
     train_parser = subparsers.add_parser("train", help="Train a controller")
-    train_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
+    train_parser.add_argument("xml_path", nargs="?", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
     train_parser.add_argument(
         "--method",
         choices=["cmaes", "distillation"],
@@ -399,19 +416,19 @@ Examples:
     train_parser.add_argument(
         "--calibration-episodes",
         type=int,
-        default=50,
+        default=DEFAULT_CALIBRATION_EPISODES // 2,
         help="Episodes for sensor calibration",
     )
 
     # CMA-ES specific
     train_parser.add_argument(
-        "--generations", type=int, default=500, help="CMA-ES generations"
+        "--generations", type=int, default=DEFAULT_NUM_GENERATIONS, help="CMA-ES generations"
     )
     train_parser.add_argument(
-        "--population", type=int, default=64, help="CMA-ES population size"
+        "--population", type=int, default=DEFAULT_POPULATION_SIZE, help="CMA-ES population size"
     )
     train_parser.add_argument(
-        "--sigma", type=float, default=0.1, help="CMA-ES initial sigma"
+        "--sigma", type=float, default=DEFAULT_CMAES_SIGMA, help="CMA-ES initial sigma"
     )
     train_parser.add_argument(
         "--workers",
@@ -423,13 +440,13 @@ Examples:
         "--no-multiprocessing", action="store_true", help="Disable multiprocessing"
     )
     train_parser.add_argument(
-        "--checkpoint-period",
+        "--save-checkpoint-every",
         type=int,
-        default=25,
+        default=DEFAULT_CHECKPOINT_EVERY,
         help="Save checkpoint every N generations",
     )
     train_parser.add_argument(
-        "--inspection-period",
+        "--inspection-every",
         type=int,
         default=0,
         help="Run full inspection every N generations (0=disabled)",
@@ -437,21 +454,21 @@ Examples:
 
     # Distillation specific
     train_parser.add_argument(
-        "--teacher-epochs", type=int, default=100, help="Teacher epochs"
+        "--teacher-epochs", type=int, default=DEFAULT_TEACHER_EPOCHS, help="Teacher epochs"
     )
     train_parser.add_argument(
-        "--student-epochs", type=int, default=200, help="Student epochs"
+        "--student-epochs", type=int, default=DEFAULT_STUDENT_EPOCHS, help="Student epochs"
     )
 
     # Evaluate command
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a controller")
-    eval_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
     eval_parser.add_argument("checkpoint", help="Path to controller checkpoint")
+    eval_parser.add_argument("--xml", dest="xml_path", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
     eval_parser.add_argument(
-        "--episodes", type=int, default=100, help="Evaluation episodes"
+        "--episodes", type=int, default=DEFAULT_CALIBRATION_EPISODES, help="Evaluation episodes"
     )
     eval_parser.add_argument(
-        "--max-steps", type=int, default=300, help="Max steps per episode"
+        "--max-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="Max steps per episode"
     )
     eval_parser.add_argument(
         "--save-results", action="store_true", help="Save results to file"
@@ -459,9 +476,9 @@ Examples:
 
     # Record command
     rec_parser = subparsers.add_parser("record", help="Record an episode")
-    rec_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
     rec_parser.add_argument("checkpoint", help="Path to controller checkpoint")
-    rec_parser.add_argument("--max-steps", type=int, default=300, help="Max steps")
+    rec_parser.add_argument("--xml", dest="xml_path", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
+    rec_parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="Max steps")
     rec_parser.add_argument("--video", help="Output video path")
     rec_parser.add_argument("--plot", help="Output plot path")
     rec_parser.add_argument(
@@ -491,7 +508,7 @@ Examples:
         "--episodes", type=int, default=1, help="Number of episodes to analyze"
     )
     inspect_parser.add_argument(
-        "--max-steps", type=int, default=300, help="Max steps per episode"
+        "--max-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="Max steps per episode"
     )
     inspect_parser.add_argument(
         "--no-display", action="store_true", help="Don't show plots"
@@ -511,20 +528,17 @@ Examples:
     vis_parser = subparsers.add_parser(
         "visualize", help="Visualize network activity during simulation"
     )
-    vis_parser.add_argument("xml_path", help="Path to MuJoCo XML file")
     vis_parser.add_argument("checkpoint", help="Path to controller checkpoint")
+    vis_parser.add_argument("--xml", dest="xml_path", default=DEFAULT_XML_PATH, help="Path to MuJoCo XML file")
     vis_parser.add_argument(
-        "--output", "-o", default="network_activity.mp4", help="Output video path"
+        "--output", "-o", default=None, help="Output directory (default: checkpoint_dir/visualizations)"
     )
     vis_parser.add_argument(
-        "--max-steps", type=int, default=300, help="Max simulation steps"
+        "--max-steps", type=int, default=DEFAULT_MAX_EPISODE_STEPS, help="Max simulation steps"
     )
-    vis_parser.add_argument("--fps", type=int, default=30, help="Video framerate")
+    vis_parser.add_argument("--fps", type=int, default=DEFAULT_VIDEO_FPS, help="Video framerate")
     vis_parser.add_argument(
-        "--layout",
-        choices=["horizontal", "vertical", "overlay"],
-        default="horizontal",
-        help="Layout for combined view",
+        "--seed", type=int, default=None, help="Random seed for reproducibility"
     )
 
     args = parser.parse_args()

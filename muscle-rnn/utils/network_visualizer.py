@@ -16,8 +16,6 @@ Layout (left to right):
 """
 
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.collections import PatchCollection, LineCollection
@@ -27,6 +25,16 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 import torch
+
+from core.constants import (
+    DEFAULT_NUM_MUSCLES,
+    DEFAULT_RNN_HIDDEN_SIZE,
+    DEFAULT_TARGET_GRID_SIZE,
+    DEFAULT_SHOW_RNN_UNITS,
+    DEFAULT_DPI,
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_VIDEO_FPS,
+)
 
 
 @dataclass
@@ -66,13 +74,13 @@ class NetworkActivityVisualizer:
     
     def __init__(
         self,
-        num_muscles: int = 4,
-        rnn_hidden_size: int = 128,
-        target_grid_size: int = 5,
+        num_muscles: int = DEFAULT_NUM_MUSCLES,
+        rnn_hidden_size: int = DEFAULT_RNN_HIDDEN_SIZE,
+        target_grid_size: int = DEFAULT_TARGET_GRID_SIZE,
         figsize: Tuple[float, float] = (14, 8),
-        dpi: int = 100,
+        dpi: int = DEFAULT_DPI,
         show_connections: bool = True,
-        show_rnn_units: int = 32,  # Show subset of RNN units for clarity
+        show_rnn_units: int = DEFAULT_SHOW_RNN_UNITS,
         colormap: str = 'RdBu_r',
         unit_radius: float = 0.15,
     ):
@@ -85,7 +93,7 @@ class NetworkActivityVisualizer:
         
         # Color mapping
         self.cmap = plt.get_cmap(colormap)
-        self.norm = Normalize(vmin=-2, vmax=2)  # Normalized activations
+        self.norm = Normalize(vmin=-1, vmax=1)  # Normalized activations
         
         # Create figure
         self.figsize = figsize
@@ -108,17 +116,17 @@ class NetworkActivityVisualizer:
         left_x = 1.5      # Proprioceptive modules
         center_x = 5.5    # RNN
         right_x = 9.5     # Output modules
-        target_x = 1.5    # Target grid
         
-        y_top = 7
-        y_bottom = 1
+        # Vertical layout: shifted down to make room for target grid above
+        y_top = 5.5
+        y_bottom = 0.5
         
         r = self.unit_radius
         
         # ===== PROPRIOCEPTIVE MODULE (left) =====
         # Arrange as 3 columns (Ia, II, Ib) x num_muscles rows
         proprio_cols = {'Ia': left_x - 0.8, 'II': left_x, 'Ib': left_x + 0.8}
-        muscle_ys = np.linspace(y_top - 1, y_bottom + 2, self.num_muscles)
+        muscle_ys = np.linspace(y_top - 0.5, y_bottom + 0.5, self.num_muscles)
         
         for sensor_type, col_x in proprio_cols.items():
             self.units[sensor_type] = []
@@ -130,19 +138,24 @@ class NetworkActivityVisualizer:
                     index=i
                 ))
         
-        # ===== TARGET GRID (bottom left) =====
+        # ===== TARGET GRID (above RNN) =====
         self.units['target'] = []
         grid_size = self.target_grid_size
-        target_positions = np.linspace(0.5, 2.5, grid_size)
-        target_y_start = y_bottom - 0.5
+        target_x_start = center_x - 0.8  # Center above RNN
+        target_x_end = center_x + 0.8
+        target_y_start = y_top + 1.5
+        target_y_end = y_top + 2.7
         
-        for i, tx in enumerate(target_positions):
-            for j, ty in enumerate(np.linspace(target_y_start - 1.5, target_y_start, grid_size)):
+        target_xs = np.linspace(target_x_start, target_x_end, grid_size)
+        target_ys = np.linspace(target_y_start, target_y_end, grid_size)
+        
+        for j, ty in enumerate(target_ys):
+            for i, tx in enumerate(target_xs):
                 self.units['target'].append(UnitPosition(
                     x=tx, y=ty, radius=r * 0.6,
                     label=f'tgt_{i}_{j}',
                     module='target',
-                    index=i * grid_size + j
+                    index=j * grid_size + i
                 ))
         
         # ===== RNN HIDDEN (center) =====
@@ -153,7 +166,7 @@ class NetworkActivityVisualizer:
         rnn_rows = int(np.ceil(n_show / rnn_cols))
         
         rnn_xs = np.linspace(center_x - 1.2, center_x + 1.2, rnn_cols)
-        rnn_ys = np.linspace(y_top - 0.5, y_bottom + 1, rnn_rows)
+        rnn_ys = np.linspace(y_top - 0.5, y_bottom + 0.5, rnn_rows)
         
         idx = 0
         for row, y in enumerate(rnn_ys):
@@ -190,36 +203,41 @@ class NetworkActivityVisualizer:
         """Define connections to draw between units."""
         self.connections = []
         
-        # Ia -> Alpha (stretch reflex)
-        for i in range(self.num_muscles):
-            self.connections.append(ConnectionSpec('Ia', i, 'alpha', i, weight=1.0))
-        
-        # II -> Alpha (stretch reflex)
-        for i in range(self.num_muscles):
-            self.connections.append(ConnectionSpec('II', i, 'alpha', i, weight=0.7))
-        
-        # Proprioceptive -> RNN (sample connections)
+        # Proprioceptive -> RNN (all sensors feed into RNN)
+        # Only show connections to first few RNN units to avoid clutter
         for sensor_type in ['Ia', 'II', 'Ib']:
             for i in range(self.num_muscles):
-                # Connect to a few RNN units
-                for rnn_idx in range(0, min(4, self.show_rnn_units)):
+                # Connect each sensor to a subset of RNN units
+                for rnn_idx in range(0, min(8, self.show_rnn_units), 2):
                     self.connections.append(ConnectionSpec(
-                        sensor_type, i, 'rnn', rnn_idx, weight=0.3
+                        sensor_type, i, 'rnn', rnn_idx, weight=0.5
                     ))
         
-        # RNN -> Outputs (sample connections)  
+        # Target -> RNN (target info feeds into RNN)
+        # Connect target grid corners to RNN
+        target_corners = [0, self.target_grid_size - 1, 
+                          self.target_grid_size * (self.target_grid_size - 1),
+                          self.target_grid_size ** 2 - 1]
+        for tgt_idx in target_corners:
+            for rnn_idx in range(0, min(8, self.show_rnn_units), 2):
+                self.connections.append(ConnectionSpec(
+                    'target', tgt_idx, 'rnn', rnn_idx, weight=0.4
+                ))
+        
+        # RNN -> Motor Outputs
         for output_type in ['alpha', 'gamma_s', 'gamma_d']:
             for out_idx in range(self.num_muscles):
-                for rnn_idx in range(0, min(4, self.show_rnn_units)):
+                # Connect from subset of RNN units
+                for rnn_idx in range(0, min(8, self.show_rnn_units), 2):
                     self.connections.append(ConnectionSpec(
-                        'rnn', rnn_idx, output_type, out_idx, weight=0.3
+                        'rnn', rnn_idx, output_type, out_idx, weight=0.5
                     ))
     
     def _init_figure(self):
         """Initialize matplotlib figure."""
         self.fig, self.ax = plt.subplots(1, 1, figsize=self.figsize, dpi=self.dpi)
         self.ax.set_xlim(-0.5, 11.5)
-        self.ax.set_ylim(-3, 8.5)
+        self.ax.set_ylim(-0.5, 9.5)  # Adjusted for target grid above RNN
         self.ax.set_aspect('equal')
         self.ax.axis('off')
         
@@ -256,7 +274,7 @@ class NetworkActivityVisualizer:
         
         self.ax.clear()
         self.ax.set_xlim(-0.5, 11.5)
-        self.ax.set_ylim(-3, 8.5)
+        self.ax.set_ylim(-0.5, 9.5)  # Adjusted for target grid above RNN
         self.ax.set_aspect('equal')
         self.ax.axis('off')
         
@@ -350,22 +368,22 @@ class NetworkActivityVisualizer:
         label_style = dict(fontsize=10, fontweight='bold', ha='center')
         
         # Proprioceptive
-        self.ax.text(1.5, 7.8, 'Proprioceptive', **label_style)
-        self.ax.text(0.7, 7.3, 'Ia', fontsize=8, ha='center')
-        self.ax.text(1.5, 7.3, 'II', fontsize=8, ha='center')
-        self.ax.text(2.3, 7.3, 'Ib', fontsize=8, ha='center')
+        self.ax.text(1.5, 6.3, 'Proprioceptive', **label_style)
+        self.ax.text(0.7, 5.8, 'Ia', fontsize=8, ha='center')
+        self.ax.text(1.5, 5.8, 'II', fontsize=8, ha='center')
+        self.ax.text(2.3, 5.8, 'Ib', fontsize=8, ha='center')
         
-        # Target
-        self.ax.text(1.5, -0.3, 'Target Grid', **label_style)
+        # Target (above RNN)
+        self.ax.text(5.5, 8.5, 'Target Grid', **label_style)
         
         # RNN
-        self.ax.text(5.5, 7.8, 'RNN Hidden', **label_style)
+        self.ax.text(5.5, 6.3, 'RNN Hidden', **label_style)
         
         # Output
-        self.ax.text(9.5, 7.8, 'Motor Output', **label_style)
-        self.ax.text(8.7, 7.3, 'α', fontsize=9, ha='center')
-        self.ax.text(9.5, 7.3, 'γs', fontsize=9, ha='center')
-        self.ax.text(10.3, 7.3, 'γd', fontsize=9, ha='center')
+        self.ax.text(9.5, 6.3, 'Motor Output', **label_style)
+        self.ax.text(8.7, 5.8, 'α', fontsize=9, ha='center')
+        self.ax.text(9.5, 5.8, 'γs', fontsize=9, ha='center')
+        self.ax.text(10.3, 5.8, 'γd', fontsize=9, ha='center')
         
         # Muscle labels on the sides
         for i in range(self.num_muscles):
@@ -455,16 +473,20 @@ def extract_activations_from_info(
     info: Dict[str, Any],
     obs: np.ndarray,
     num_muscles: int,
-    target_grid_size: int = 5
+    target_grid_size: int = 4,
+    target_encoder: Optional[Any] = None,
+    env_info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, np.ndarray]:
     """
     Extract activations dict from controller forward info and observation.
     
     Args:
         info: Dict returned by controller.forward()
-        obs: Current observation array
-        n_muscles: Number of muscles
+        obs: Current observation array [proprio, target_xyz]
+        num_muscles: Number of muscles
         target_grid_size: Size of target grid
+        target_encoder: TargetEncoder instance for encoding XYZ to grid
+        env_info: Environment info dict (contains 'target_visible')
         
     Returns:
         Dict suitable for NetworkActivityVisualizer.render_frame()
@@ -493,15 +515,25 @@ def extract_activations_from_info(
     if 'gamma_dynamic' in info:
         activations['gamma_d'] = info['gamma_dynamic'].cpu().numpy().flatten()
     
-    # Target encoding from observation
-    # Obs layout: [proprio (num_muscles*3), target (grid^2), phase (3), time (1)]
-    proprio_dim = num_muscles * 3
-    target_dim = target_grid_size ** 2
-    target_start = proprio_dim
-    target_end = target_start + target_dim
+    # Target encoding: check if target is visible first
+    target_visible = True
+    if env_info is not None:
+        target_visible = env_info.get('target_visible', True)
     
-    if len(obs) >= target_end:
-        activations['target'] = obs[target_start:target_end]
+    if not target_visible:
+        # Target not visible - show zeros
+        activations['target'] = np.zeros(target_grid_size ** 2)
+    elif target_encoder is not None:
+        # Encode XYZ to Gaussian grid
+        # Obs layout: [proprio (num_muscles*3), target_xyz (3)]
+        proprio_dim = num_muscles * 3
+        target_xyz = obs[proprio_dim:proprio_dim + 3]
+        target_tensor = torch.tensor(target_xyz, dtype=torch.float32).unsqueeze(0)
+        encoded = target_encoder.encode(target_tensor).squeeze(0).numpy()
+        activations['target'] = encoded
+    else:
+        # Fallback: zeros if no encoder provided
+        activations['target'] = np.zeros(target_grid_size ** 2)
     
     return activations
 
@@ -510,10 +542,11 @@ def record_episode_with_network(
     controller: torch.nn.Module,
     xml_path: str,
     sensor_stats: Dict,
-    max_steps: int = 300,
+    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
     output_video: Optional[str] = None,
-    fps: int = 30,
-    layout: str = 'horizontal'
+    fps: int = DEFAULT_VIDEO_FPS,
+    layout: str = 'horizontal',
+    seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Record an episode with synchronized network activity visualization.
@@ -526,6 +559,7 @@ def record_episode_with_network(
         output_video: Path to save video (None = don't save)
         fps: Video framerate
         layout: 'horizontal', 'vertical', or 'overlay'
+        seed: Random seed for reproducibility
         
     Returns:
         Dict with trajectory data and frames
@@ -534,18 +568,27 @@ def record_episode_with_network(
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
     
-    from envs.reaching_env import ReachingEnv
+    from envs.reaching import ReachingEnv
     from models.controllers import ModelConfig
+    from models.modules.target import TargetEncoder
     
     # Get model config from controller
     config = controller.config
+    
+    # Create target encoder for visualization
+    target_grid_size = int(np.sqrt(config.num_target_units))
+    target_encoder = TargetEncoder(
+        grid_size=target_grid_size,
+        sigma=config.target_sigma,
+        workspace_bounds=config.workspace_bounds,
+    )
     
     # Create environment and visualizer
     env = ReachingEnv(xml_path, render_mode='rgb_array', sensor_stats=sensor_stats)
     viz = NetworkActivityVisualizer(
         num_muscles=config.num_muscles,
         rnn_hidden_size=config.rnn_hidden_size,
-        target_grid_size=int(np.sqrt(config.num_target_units))
+        target_grid_size=target_grid_size
     )
     
     device = next(controller.parameters()).device
@@ -561,7 +604,7 @@ def record_episode_with_network(
         'activations': []
     }
     
-    obs, env_info = env.reset()
+    obs, env_info = env.reset(seed=seed)
     controller.init_hidden(1, device)
     
     with torch.no_grad():
@@ -579,7 +622,9 @@ def record_episode_with_network(
             # Extract activations
             activations = extract_activations_from_info(
                 net_info, obs, config.num_muscles, 
-                int(np.sqrt(config.num_target_units))
+                target_grid_size,
+                target_encoder=target_encoder,
+                env_info=env_info,
             )
             trajectory['activations'].append(activations)
             
@@ -626,7 +671,7 @@ def visualize_network_live(
     xml_path: str,
     sensor_stats_path: Optional[str] = None,
     output_video: Optional[str] = None,
-    max_steps: int = 300
+    max_steps: int = DEFAULT_MAX_EPISODE_STEPS
 ):
     """
     Quick function to visualize a trained network.
@@ -673,7 +718,7 @@ if __name__ == '__main__':
     # Demo with random activations
     print("Testing NetworkActivityVisualizer...")
     
-    viz = NetworkActivityVisualizer(num_muscles=4, rnn_hidden_size=128)
+    viz = NetworkActivityVisualizer(num_muscles=4, rnn_hidden_size=128, target_grid_size=4)
     
     # Generate random activations
     activations = {
@@ -684,7 +729,7 @@ if __name__ == '__main__':
         'alpha': np.random.rand(4),  # 0-1 for motor output
         'gamma_s': np.random.rand(4) * 2,  # 0-2 for gamma
         'gamma_d': np.random.rand(4) * 2,
-        'target': np.random.rand(25),
+        'target': np.random.rand(16),  # 4x4 grid
     }
     
     # Render frame

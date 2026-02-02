@@ -32,14 +32,25 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from envs.reaching_env import ReachingEnv, calibrate_sensors
+from envs.reaching import ReachingEnv
+from envs.plant import parse_mujoco_xml, calibrate_sensors
 from models.controllers import (
     RNNController,
     MLPController,
-    ModelConfig,
     create_controller,
 )
-from utils.model_parser import parse_mujoco_xml
+from core.config import ModelConfig
+from core.constants import (
+    DEFAULT_POPULATION_SIZE,
+    DEFAULT_NUM_GENERATIONS,
+    DEFAULT_CMAES_SIGMA,
+    DEFAULT_NUM_EVAL_EPISODES,
+    DEFAULT_MAX_EPISODE_STEPS,
+    DEFAULT_TARGET_FITNESS,
+    DEFAULT_PATIENCE,
+    DEFAULT_CHECKPOINT_EVERY,
+    DEFAULT_CALIBRATION_EPISODES,
+)
 
 
 @dataclass
@@ -47,25 +58,25 @@ class CMAESConfig:
     """Configuration for CMA-ES training."""
 
     # CMA-ES parameters
-    population_size: int = 64
-    sigma_init: float = 0.1  # Reduced from 0.5 to prevent large weight perturbations
+    population_size: int = DEFAULT_POPULATION_SIZE
+    sigma_init: float = DEFAULT_CMAES_SIGMA
 
     # Training parameters
-    num_generations: int = 500
-    num_eval_episodes: int = 5
-    max_steps_per_episode: int = 300
+    num_generations: int = DEFAULT_NUM_GENERATIONS
+    num_eval_episodes: int = DEFAULT_NUM_EVAL_EPISODES
+    max_steps_per_episode: int = DEFAULT_MAX_EPISODE_STEPS
 
     # Early stopping
-    target_fitness: float = 50.0
-    patience: int = 50
+    target_fitness: float = DEFAULT_TARGET_FITNESS
+    patience: int = DEFAULT_PATIENCE
 
     # Checkpointing and inspection periods (in generations)
-    checkpoint_period: int = 25  # Save checkpoint every N generations
-    inspection_period: int = 0  # Run full inspection every N generations (0=disabled)
+    save_checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY
+    inspection_every: int = 0  # Run full inspection every N generations (0=disabled)
 
     # Parallelization
-    num_workers: int = mp.cpu_count() - 1  # Default to number of CPUs minus one
-    use_multiprocessing: bool = True  # Explicitly enabled by default
+    num_workers: int = mp.cpu_count() - 1
+    use_multiprocessing: bool = True
 
     # Paths
     xml_path: str = ""
@@ -225,7 +236,7 @@ class CMAES:
 
 def _evaluate_single(args):
     """Worker function for parallel evaluation."""
-    params, xml_path, model_config_dict, sensor_stats, n_episodes, max_steps = args
+    params, xml_path, model_config_dict, sensor_stats, num_episodes, max_steps = args
 
     # Check for NaN in params
     if np.any(np.isnan(params)):
@@ -242,7 +253,7 @@ def _evaluate_single(args):
     successes = 0
 
     with torch.no_grad():
-        for ep in range(n_episodes):
+        for ep in range(num_episodes):
             obs, info = env.reset()
             controller.init_hidden(1, torch.device("cpu"))
 
@@ -282,7 +293,7 @@ def _evaluate_single(args):
 
     env.close()
 
-    fitness = total_reward / n_episodes
+    fitness = total_reward / num_episodes
 
     # Final NaN check
     if np.isnan(fitness):
@@ -296,7 +307,7 @@ def evaluate_controller(
     xml_path: str,
     model_config_dict: Dict,
     sensor_stats: Dict,
-    n_episodes: int,
+    num_episodes: int,
     max_steps: int,
     render: bool = False,
     return_trajectories: bool = False,
@@ -317,7 +328,7 @@ def evaluate_controller(
     frames = [] if render else None
 
     with torch.no_grad():
-        for ep in range(n_episodes):
+        for ep in range(num_episodes):
             obs, info = env.reset()
             controller.init_hidden(1, torch.device("cpu"))
 
@@ -362,11 +373,11 @@ def evaluate_controller(
 
     env.close()
 
-    fitness = total_reward / n_episodes
+    fitness = total_reward / num_episodes
     info_out = {
         "episode_rewards": episode_rewards,
         "successes": successes,
-        "success_rate": successes / n_episodes,
+        "success_rate": successes / num_episodes,
     }
 
     if return_trajectories:
@@ -393,13 +404,13 @@ class CMAESTrainer:
 
         # Initialize controller to get parameter count
         self.controller = RNNController(model_config)
-        self.n_params = self.controller.count_parameters()
-        print(f"Controller has {self.n_params} parameters")
+        self.num_params = self.controller.count_parameters()
+        print(f"Controller has {self.num_params} parameters")
 
         # Initialize CMA-ES
         initial_params = self.controller.get_flat_params()
         self.cmaes = CMAES(
-            dim=self.n_params,
+            dim=self.num_params,
             population_size=config.population_size,
             sigma=config.sigma_init,
             mean=initial_params,
@@ -529,12 +540,12 @@ class CMAESTrainer:
             )
 
             # Checkpointing
-            if (gen + 1) % config.checkpoint_period == 0:
+            if (gen + 1) % config.save_checkpoint_every == 0:
                 self._save_checkpoint(gen)
                 self._render_and_plot(gen)
 
             # Full inspection (episode summary, simulation video, network activity)
-            if config.inspection_period > 0 and (gen + 1) % config.inspection_period == 0:
+            if config.inspection_every > 0 and (gen + 1) % config.inspection_every == 0:
                 self._run_inspection(gen)
 
             # Early stopping
@@ -621,7 +632,7 @@ class CMAESTrainer:
             self.config.xml_path,
             asdict(self.model_config),
             self.sensor_stats,
-            n_episodes=1,
+            num_episodes=1,
             max_steps=self.config.max_steps_per_episode,
             render=False,
             return_trajectories=True,
@@ -649,85 +660,46 @@ class CMAESTrainer:
 
         print(f"\n--- Running inspection at generation {gen} ---")
 
-        # Import visualization functions
-        from utils.visualization import (
-            record_episode,
-            plot_episode_summary,
-            print_weight_summary,
-            plot_reflex_connections,
-            save_video,
-        )
+        # Import unified episode recorder
+        from utils.episode_recorder import record_and_save
+        from utils.visualization import plot_reflex_connections
 
         # Set best params on controller
         self.controller.set_flat_params(self.best_params)
         self.controller.eval()
 
         # Create inspection directory
-        inspect_dir = self.output_dir / "inspections"
-        inspect_dir.mkdir(exist_ok=True)
+        inspect_dir = self.output_dir / "inspections" / f"gen{gen}"
+        inspect_dir.mkdir(parents=True, exist_ok=True)
 
-        # Record episode with rendering
-        trajectory = record_episode(
-            controller=self.controller,
-            xml_path=self.config.xml_path,
-            sensor_stats=self.sensor_stats,
-            max_steps=self.config.max_steps_per_episode,
-        )
+        # Use fixed seed for reproducible recordings
+        episode_seed = gen * 1000  # Deterministic seed based on generation
 
-        # Episode stats
-        total_reward = sum(trajectory["rewards"])
-        final_phase = (
-            trajectory["infos"][-1].get("phase", "unknown")
-            if trajectory["infos"]
-            else "unknown"
-        )
-        final_dist = (
-            trajectory["infos"][-1].get("distance_to_target", -1)
-            if trajectory["infos"]
-            else -1
-        )
-
-        print(
-            f"  Episode: {len(trajectory['rewards'])} steps, reward={total_reward:.2f}"
-        )
-        print(f"  Final phase: {final_phase}, distance: {final_dist:.4f}")
-
-        # Save simulation video
-        if "frames" in trajectory and trajectory["frames"]:
-            video_path = str(inspect_dir / f"simulation_gen{gen}.mp4")
-            save_video(trajectory["frames"], video_path, fps=30)
-            print(f"  Simulation video saved: {video_path}")
-
-        # Save episode summary plot
-        plot_episode_summary(
-            trajectory,
-            output_path=str(inspect_dir / f"episode_summary_gen{gen}.png"),
-            show=False,
-        )
-
-        # Save reflex connections
-        plot_reflex_connections(
-            self.controller,
-            output_path=str(inspect_dir / f"reflex_gen{gen}.png"),
-            show=False,
-        )
-
-        # Network activity visualization
+        # Record episode with unified recorder (single pass, perfectly synced)
         try:
-            from utils.network_visualizer import record_episode_with_network
-
-            print(f"  Recording network activity visualization...")
-            network_traj = record_episode_with_network(
+            data = record_and_save(
                 controller=self.controller,
                 xml_path=self.config.xml_path,
                 sensor_stats=self.sensor_stats,
+                output_dir=str(inspect_dir),
                 max_steps=self.config.max_steps_per_episode,
-                output_video=str(inspect_dir / f"network_activity_gen{gen}.mp4"),
+                seed=episode_seed,
                 fps=30,
             )
-            print(f"  Network activity video saved")
         except Exception as e:
-            print(f"  Warning: Could not create network activity video: {e}")
+            print(f"  Warning: Could not record episode: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Save reflex connections
+        try:
+            plot_reflex_connections(
+                self.controller,
+                output_path=str(inspect_dir / "reflex_connections.png"),
+                show=False,
+            )
+        except Exception as e:
+            print(f"  Warning: Could not plot reflex connections: {e}")
 
         print(f"  Inspection outputs saved to {inspect_dir}")
         print(f"--- End inspection ---\n")
@@ -736,14 +708,14 @@ class CMAESTrainer:
 def run_cmaes_training(
     xml_path: str,
     output_dir: str = "outputs/cmaes",
-    num_generations: int = 500,
-    population_size: int = 64,
-    sigma_init: float = 0.1,
+    num_generations: int = DEFAULT_NUM_GENERATIONS,
+    population_size: int = DEFAULT_POPULATION_SIZE,
+    sigma_init: float = DEFAULT_CMAES_SIGMA,
     num_workers: int = None,
     use_multiprocessing: bool = True,
-    calibration_episodes: int = 50,
-    checkpoint_period: int = 25,
-    inspection_period: int = 0,
+    calibration_episodes: int = DEFAULT_CALIBRATION_EPISODES,
+    save_checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY,
+    inspection_every: int = 0,
 ) -> Dict[str, Any]:
     """
     Main entry point for CMA-ES training.
@@ -757,8 +729,8 @@ def run_cmaes_training(
         num_workers: Number of parallel workers (default: cpu_count - 1)
         use_multiprocessing: Whether to use parallel evaluation
         calibration_episodes: Episodes for sensor calibration
-        checkpoint_period: Save checkpoint every N generations
-        inspection_period: Run full inspection every N generations (0=disabled)
+        save_checkpoint_every: Save checkpoint every N generations
+        inspection_every: Run full inspection every N generations (0=disabled)
 
     Returns:
         Training results
@@ -770,19 +742,21 @@ def run_cmaes_training(
     # Parse model
     parsed_model = parse_mujoco_xml(xml_path)
     print(f"Model: {parsed_model.model_name}")
-    print(f"Joints: {parsed_model.n_joints}")
-    print(f"Muscles: {parsed_model.n_muscles}")
-    print(f"Sensors: {parsed_model.n_sensors}")
+    print(f"Joints: {parsed_model.num_joints}")
+    print(f"Muscles: {parsed_model.num_muscles}")
+    print(f"Sensors: {parsed_model.num_sensors}")
 
     # Calibrate sensors
     print("Calibrating sensors...")
-    sensor_stats = calibrate_sensors(xml_path, n_episodes=calibration_episodes)
+    sensor_stats = calibrate_sensors(xml_path, num_episodes=calibration_episodes)
 
     # Create model config
     model_config = ModelConfig(
-        num_muscles=parsed_model.n_muscles,
-        num_sensors=parsed_model.n_sensors,
+        num_muscles=parsed_model.num_muscles,
+        num_sensors=parsed_model.num_sensors,
         num_target_units=16,  # 4x4 grid
+        target_grid_size=4,
+        target_sigma=0.1,
         rnn_hidden_size=32,
     )
 
@@ -795,8 +769,8 @@ def run_cmaes_training(
         sigma_init=sigma_init,
         num_workers=num_workers,
         use_multiprocessing=use_multiprocessing,
-        checkpoint_period=checkpoint_period,
-        inspection_period=inspection_period,
+        save_checkpoint_every=save_checkpoint_every,
+        inspection_every=inspection_every,
     )
 
     # Save configs
@@ -828,9 +802,9 @@ if __name__ == "__main__":
         "--output-dir", default="outputs/cmaes", help="Output directory"
     )
     parser.add_argument(
-        "--generations", type=int, default=500, help="Number of generations"
+        "--generations", type=int, default=DEFAULT_NUM_GENERATIONS, help="Number of generations"
     )
-    parser.add_argument("--population", type=int, default=64, help="Population size")
+    parser.add_argument("--population", type=int, default=DEFAULT_POPULATION_SIZE, help="Population size")
     parser.add_argument(
         "--workers", type=int, default=mp.cpu_count() - 1, help="Number of workers"
     )

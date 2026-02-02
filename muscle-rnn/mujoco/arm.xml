@@ -3,7 +3,7 @@
   <option timestep="0.01" integrator="RK4">
     <flag warmstart="enable" />
   </option>
-
+  
   <visual>
     <map force="0.1" zfar="30" />
     <rgba haze="0 0 0 1" />
@@ -26,6 +26,7 @@
   </default>
 
   <worldbody>
+
     <!-- TRUNK -->
     <body name="trunk" pos="0 0 0">
 
