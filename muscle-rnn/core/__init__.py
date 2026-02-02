@@ -1,31 +1,17 @@
-"""
-Core package for shared functionality.
-
-Contains:
-- Configuration classes
-- Base classes and interfaces
-- Observation types for structured data
-- Common constants
-"""
+"""Core package - configuration, base classes, types, and constants."""
 
 from .config import ModelConfig, TrainingConfig
-from .base import BaseTrainer, BaseController
-from .types import (
-    Proprioception,
-    ProprioceptionTensor,
-    Observation,
-    ObservationTensor,
-)
+from .base import BaseController
+from .types import Proprioception, ProprioceptionTensor, Observation, ObservationTensor
 from . import constants
 
 __all__ = [
-    'ModelConfig',
-    'TrainingConfig',
-    'BaseTrainer',
-    'BaseController',
-    'Proprioception',
-    'ProprioceptionTensor', 
-    'Observation',
-    'ObservationTensor',
-    'constants',
+    "ModelConfig",
+    "TrainingConfig",
+    "BaseController",
+    "Proprioception",
+    "ProprioceptionTensor",
+    "Observation",
+    "ObservationTensor",
+    "constants",
 ]

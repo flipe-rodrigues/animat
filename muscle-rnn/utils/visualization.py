@@ -29,6 +29,7 @@ from core.constants import (
     DEFAULT_TARGET_GRID_SIZE,
     DEFAULT_TARGET_SIGMA,
     DEFAULT_VIDEO_FPS,
+    DEFAULT_PLOT_DPI,
 )
 
 
@@ -366,7 +367,7 @@ def plot_trajectory(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI)
         print(f"Plot saved to {output_path}")
     
     if show:
@@ -417,7 +418,7 @@ def plot_training_curves(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI)
         print(f"Plot saved to {output_path}")
     
     if show:
@@ -568,7 +569,7 @@ def plot_weight_distributions(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"Weight distributions saved to {output_path}")
     
     if show:
@@ -636,7 +637,7 @@ def plot_weight_matrices(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"Weight matrices saved to {output_path}")
     
     if show:
@@ -701,7 +702,7 @@ def plot_reflex_connections(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"Reflex connections saved to {output_path}")
     
     if show:
@@ -780,7 +781,7 @@ def plot_sensory_weights(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"Sensory weights saved to {output_path}")
     
     if show:
@@ -836,7 +837,7 @@ def plot_rnn_weights(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"RNN weights saved to {output_path}")
     
     if show:
@@ -1177,7 +1178,7 @@ def plot_episode_summary(
     plt.suptitle('Episode Summary', fontsize=14, fontweight='bold', y=1.0)
     
     if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
         print(f"Episode summary saved to {output_path}")
     
     if show:

@@ -34,6 +34,7 @@ from core.constants import (
     DEFAULT_POPULATION_SIZE,
     DEFAULT_CMAES_SIGMA,
     DEFAULT_CHECKPOINT_EVERY,
+    DEFAULT_INSPECTION_EVERY,
     DEFAULT_TEACHER_EPOCHS,
     DEFAULT_STUDENT_EPOCHS,
     DEFAULT_VIDEO_FPS,
@@ -124,7 +125,9 @@ def cmd_calibrate(args):
 def cmd_train(args):
     """Train a controller."""
     if args.method == "cmaes":
-        print(f"Starting CMA-ES training...")
+        import multiprocessing as mp
+        num_workers = args.workers if args.workers is not None else max(1, mp.cpu_count() - 1)
+        print(f"Starting CMA-ES training with {num_workers} workers...")
         results = run_cmaes_training(
             xml_path=args.xml_path,
             output_dir=args.output_dir,
@@ -448,7 +451,7 @@ Examples:
     train_parser.add_argument(
         "--inspection-every",
         type=int,
-        default=0,
+        default=DEFAULT_INSPECTION_EVERY,
         help="Run full inspection every N generations (0=disabled)",
     )
 

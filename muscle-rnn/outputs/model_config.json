@@ -3,7 +3,7 @@
   "num_sensors": 12,
   "num_target_units": 16,
   "target_grid_size": 4,
-  "target_sigma": 0.1,
+  "target_sigma": 0.5,
   "workspace_bounds": null,
   "rnn_hidden_size": 32,
   "rnn_type": "rnn",

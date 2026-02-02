@@ -1,14 +1,14 @@
 {
-  "population_size": 64,
+  "population_size": 32,
   "sigma_init": 0.25,
   "num_generations": 500,
   "num_eval_episodes": 5,
   "max_steps_per_episode": 300,
   "target_fitness": 50.0,
   "patience": 50,
-  "save_checkpoint_every": 25,
-  "inspection_every": 1,
-  "num_workers": 7,
+  "save_checkpoint_every": 100,
+  "inspection_every": 25,
+  "num_workers": 11,
   "use_multiprocessing": true,
   "xml_path": "mujoco/arm.xml",
   "output_dir": "outputs"

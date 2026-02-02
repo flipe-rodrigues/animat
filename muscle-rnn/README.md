@@ -8,7 +8,7 @@ A biologically-inspired neural controller for muscle-driven robotic arms in MuJo
 muscle-rnn/
 ├── core/                      # Core abstractions and configuration
 │   ├── __init__.py
-│   ├── base.py               # Base classes (BaseController, BaseTrainer)
+│   ├── base.py               # Base classes (BaseController)
 │   ├── config.py             # Configuration classes (ModelConfig, TrainingConfig)
 │   └── constants.py          # Project-wide constants
 ├── models/                    # Neural network models
@@ -27,13 +27,11 @@ muscle-rnn/
 │   ├── __init__.py
 │   ├── train_cmaes.py        # CMA-ES training
 │   ├── train_distillation.py # Distillation learning
-│   ├── evaluation.py         # Shared evaluation utilities
-│   └── checkpoint.py         # Checkpoint management
+│   └── evaluation.py         # Shared evaluation utilities
 ├── utils/                     # Utility modules
 │   ├── __init__.py
-│   ├── plant.py              # MuJoCo physics interface & XML parsing
 │   ├── visualization.py      # Visualization tools
-│   └── network_visualizer.py # Network architecture visualization
+│   └── episode_recorder.py   # Episode recording and network activity visualization
 ├── mujoco/                    # MuJoCo model files
 │   └── arm.xml               # Arm model definition
 ├── outputs/                   # Training outputs
@@ -168,8 +166,8 @@ python run.py train mujoco/arm.xml --method distillation
 # Evaluate trained model
 python run.py evaluate checkpoint.pth --episodes 100
 
-# Visualize network architecture
-python utils/network_visualizer.py
+# Visualize network activity during episode
+python run.py visualize checkpoint.pth
 ```
 
 ### Python API

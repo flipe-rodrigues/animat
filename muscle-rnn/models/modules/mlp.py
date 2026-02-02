@@ -1,9 +1,4 @@
-"""
-MLP Core Module - Feedforward network (no recurrence)
-
-Used for teacher networks in distillation learning.
-Has larger hidden layers to compensate for lack of memory.
-"""
+"""MLP Core Module - Feedforward network (no recurrence)."""
 
 import torch
 import torch.nn as nn
@@ -11,11 +6,7 @@ from typing import List, Optional
 
 
 class MLPCore(nn.Module):
-    """
-    Feedforward MLP core (no recurrence).
-    
-    Uses multiple hidden layers to compensate for lack of temporal memory.
-    """
+    """Feedforward MLP core (no recurrence). Used for teacher networks in distillation."""
 
     def __init__(
         self,
@@ -24,36 +15,19 @@ class MLPCore(nn.Module):
         hidden_sizes: Optional[List[int]] = None,
     ):
         super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        
         if hidden_sizes is None:
             hidden_sizes = [256, 256, 128]
-        self.hidden_sizes = hidden_sizes
 
-        # Build MLP layers
         layers = []
         prev_dim = input_size
         for hidden_dim in hidden_sizes:
-            layers.append(nn.Linear(prev_dim, hidden_dim))
-            layers.append(nn.ReLU())
+            layers.extend([nn.Linear(prev_dim, hidden_dim), nn.ReLU()])
             prev_dim = hidden_dim
-
-        # Final projection to output size
         layers.append(nn.Linear(prev_dim, output_size))
-        
+
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x: Input features [batch, input_size]
-
-        Returns:
-            output: MLP output [batch, output_size]
-        """
         return self.mlp(x)
 
     def init_hidden(self, batch_size: int, device: torch.device) -> None:

@@ -1,20 +1,15 @@
-"""
-CMA-ES Training for Muscle-Driven Arm Controller
-
-Uses Covariance Matrix Adaptation Evolution Strategy to optimize
-the RNN controller weights for the reaching task.
-"""
+"""CMA-ES Training for Muscle-Driven Arm Controller."""
 
 import numpy as np
 import torch
 import json
 import pickle
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple, Callable
+from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass, asdict
 import time
 import matplotlib.pyplot as plt
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 import multiprocessing as mp
 
 try:
@@ -28,17 +23,9 @@ except ImportError:
         return iterable
 
 
-import sys
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from envs.reaching import ReachingEnv
 from envs.plant import parse_mujoco_xml, calibrate_sensors
-from models.controllers import (
-    RNNController,
-    MLPController,
-    create_controller,
-)
+from models.controllers import RNNController
 from core.config import ModelConfig
 from core.constants import (
     DEFAULT_POPULATION_SIZE,
@@ -49,7 +36,14 @@ from core.constants import (
     DEFAULT_TARGET_FITNESS,
     DEFAULT_PATIENCE,
     DEFAULT_CHECKPOINT_EVERY,
+    DEFAULT_INSPECTION_EVERY,
     DEFAULT_CALIBRATION_EPISODES,
+    DEFAULT_NUM_TARGET_UNITS,
+    DEFAULT_TARGET_GRID_SIZE,
+    DEFAULT_TARGET_SIGMA,
+    DEFAULT_RNN_HIDDEN_SIZE,
+    DEFAULT_VIDEO_FPS,
+    DEFAULT_PLOT_DPI,
 )
 
 
@@ -57,28 +51,17 @@ from core.constants import (
 class CMAESConfig:
     """Configuration for CMA-ES training."""
 
-    # CMA-ES parameters
     population_size: int = DEFAULT_POPULATION_SIZE
     sigma_init: float = DEFAULT_CMAES_SIGMA
-
-    # Training parameters
     num_generations: int = DEFAULT_NUM_GENERATIONS
     num_eval_episodes: int = DEFAULT_NUM_EVAL_EPISODES
     max_steps_per_episode: int = DEFAULT_MAX_EPISODE_STEPS
-
-    # Early stopping
     target_fitness: float = DEFAULT_TARGET_FITNESS
     patience: int = DEFAULT_PATIENCE
-
-    # Checkpointing and inspection periods (in generations)
     save_checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY
-    inspection_every: int = 0  # Run full inspection every N generations (0=disabled)
-
-    # Parallelization
-    num_workers: int = mp.cpu_count() - 1
+    inspection_every: int = DEFAULT_INSPECTION_EVERY
+    num_workers: int = max(1, mp.cpu_count() - 1)
     use_multiprocessing: bool = True
-
-    # Paths
     xml_path: str = ""
     output_dir: str = "outputs/cmaes"
 
@@ -89,17 +72,12 @@ class CMAES:
     def __init__(
         self,
         dim: int,
-        population_size: int = None,
+        population_size: Optional[int] = None,
         sigma: float = 0.5,
-        mean: np.ndarray = None,
+        mean: Optional[np.ndarray] = None,
     ):
         self.dim = dim
-
-        if population_size is None:
-            self.lambda_ = 4 + int(3 * np.log(dim))
-        else:
-            self.lambda_ = population_size
-
+        self.lambda_ = population_size or 4 + int(3 * np.log(dim))
         self.mu = self.lambda_ // 2
 
         weights = np.log(self.mu + 0.5) - np.log(np.arange(1, self.mu + 1))
@@ -114,17 +92,16 @@ class CMAES:
             2 * (self.mueff - 2 + 1 / self.mueff) / ((dim + 2) ** 2 + self.mueff),
         )
         self.damps = 1 + 2 * max(0, np.sqrt((self.mueff - 1) / (dim + 1)) - 1) + self.cs
+        self.chiN = np.sqrt(dim) * (1 - 1 / (4 * dim) + 1 / (21 * dim**2))
 
         self.mean = mean if mean is not None else np.zeros(dim)
         self.sigma = sigma
         self.pc = np.zeros(dim)
         self.ps = np.zeros(dim)
+        self.C = np.eye(dim)
         self.B = np.eye(dim)
         self.D = np.ones(dim)
-        self.C = np.eye(dim)
         self.invsqrtC = np.eye(dim)
-
-        self.chiN = np.sqrt(dim) * (1 - 1 / (4 * dim) + 1 / (21 * dim**2))
 
         self.generation = 0
         self.best_fitness_history = []
@@ -133,114 +110,101 @@ class CMAES:
 
     def sample_population(self) -> np.ndarray:
         z = np.random.randn(self.lambda_, self.dim)
-        y = z @ (self.B * self.D).T
-        x = self.mean + self.sigma * y
-        return x
+        return self.mean + self.sigma * (z @ (self.B * self.D).T)
 
     def update(self, population: np.ndarray, fitness: np.ndarray) -> None:
-        """Update CMA-ES state based on fitness."""
-        # Replace NaN fitness with very bad values
         fitness = np.nan_to_num(fitness, nan=-1e6, posinf=-1e6, neginf=-1e6)
-
-        indices = np.argsort(-fitness)  # Sort descending (higher is better)
+        indices = np.argsort(-fitness)
         selected = population[indices[: self.mu]]
 
         old_mean = self.mean.copy()
         self.mean = self.weights @ selected
 
-        # Check for NaN in mean
         if np.any(np.isnan(self.mean)):
-            self.mean = old_mean  # Revert to old mean
-            self.sigma *= 0.5  # Reduce step size
-            self.generation += 1
-            self.best_fitness_history.append(fitness[indices[0]])
-            self.mean_fitness_history.append(np.nanmean(fitness))
-            self.sigma_history.append(self.sigma)
-            return
+            self.mean = old_mean
+            self.sigma *= 0.5
+        else:
+            y_w = (self.mean - old_mean) / self.sigma
+            z_w = self.invsqrtC @ y_w
 
-        y_w = (self.mean - old_mean) / self.sigma
-        z_w = self.invsqrtC @ y_w
+            self.ps = (1 - self.cs) * self.ps + np.sqrt(
+                self.cs * (2 - self.cs) * self.mueff
+            ) * z_w
+            hsig = np.linalg.norm(self.ps) / np.sqrt(
+                1 - (1 - self.cs) ** (2 * (self.generation + 1))
+            ) / self.chiN < 1.4 + 2 / (self.dim + 1)
 
-        self.ps = (1 - self.cs) * self.ps + np.sqrt(
-            self.cs * (2 - self.cs) * self.mueff
-        ) * z_w
+            self.pc = (1 - self.cc) * self.pc + hsig * np.sqrt(
+                self.cc * (2 - self.cc) * self.mueff
+            ) * y_w
 
-        hsig = np.linalg.norm(self.ps) / np.sqrt(
-            1 - (1 - self.cs) ** (2 * (self.generation + 1))
-        ) / self.chiN < 1.4 + 2 / (self.dim + 1)
+            c1a = self.c1 * (1 - (1 - hsig**2) * self.cc * (2 - self.cc))
+            y_selected = (selected - old_mean) / self.sigma
 
-        self.pc = (1 - self.cc) * self.pc + hsig * np.sqrt(
-            self.cc * (2 - self.cc) * self.mueff
-        ) * y_w
+            self.C = (
+                (1 - c1a - self.cmu * self.weights.sum()) * self.C
+                + self.c1 * np.outer(self.pc, self.pc)
+                + self.cmu * (self.weights[:, None] * y_selected).T @ y_selected
+            )
+            self.sigma *= np.exp(
+                (self.cs / self.damps) * (np.linalg.norm(self.ps) / self.chiN - 1)
+            )
+            self.sigma = np.clip(self.sigma, 1e-10, 10.0)
 
-        c1a = self.c1 * (1 - (1 - hsig**2) * self.cc * (2 - self.cc))
-        y_selected = (selected - old_mean) / self.sigma
-
-        self.C = (
-            (1 - c1a - self.cmu * self.weights.sum()) * self.C
-            + self.c1 * np.outer(self.pc, self.pc)
-            + self.cmu * (self.weights[:, None] * y_selected).T @ y_selected
-        )
-
-        self.sigma *= np.exp(
-            (self.cs / self.damps) * (np.linalg.norm(self.ps) / self.chiN - 1)
-        )
-
-        # Clamp sigma to reasonable range
-        self.sigma = np.clip(self.sigma, 1e-10, 10.0)
-
-        if self.generation % (self.dim // 10 + 1) == 0:
-            self.C = np.triu(self.C) + np.triu(self.C, 1).T
-            D, B = np.linalg.eigh(self.C)
-            D = np.sqrt(np.maximum(D, 1e-20))
-            self.D = D
-            self.B = B
-            self.invsqrtC = B @ np.diag(1 / D) @ B.T
+            if self.generation % (self.dim // 10 + 1) == 0:
+                self.C = np.triu(self.C) + np.triu(self.C, 1).T
+                D, B = np.linalg.eigh(self.C)
+                self.D = np.sqrt(np.maximum(D, 1e-20))
+                self.B = B
+                self.invsqrtC = B @ np.diag(1 / self.D) @ B.T
 
         self.best_fitness_history.append(fitness[indices[0]])
         self.mean_fitness_history.append(np.nanmean(fitness))
         self.sigma_history.append(self.sigma)
-
         self.generation += 1
 
     def get_best(self) -> np.ndarray:
         return self.mean.copy()
 
     def save_state(self, path: str) -> None:
-        state = {
-            "dim": self.dim,
-            "lambda_": self.lambda_,
-            "mu": self.mu,
-            "mean": self.mean,
-            "sigma": self.sigma,
-            "pc": self.pc,
-            "ps": self.ps,
-            "C": self.C,
-            "B": self.B,
-            "D": self.D,
-            "generation": self.generation,
-            "best_fitness_history": self.best_fitness_history,
-            "mean_fitness_history": self.mean_fitness_history,
-            "sigma_history": self.sigma_history,
-        }
         with open(path, "wb") as f:
-            pickle.dump(state, f)
+            pickle.dump(
+                {
+                    k: getattr(self, k)
+                    for k in [
+                        "dim",
+                        "lambda_",
+                        "mu",
+                        "mean",
+                        "sigma",
+                        "pc",
+                        "ps",
+                        "C",
+                        "B",
+                        "D",
+                        "generation",
+                        "best_fitness_history",
+                        "mean_fitness_history",
+                        "sigma_history",
+                    ]
+                },
+                f,
+            )
 
     def load_state(self, path: str) -> None:
         with open(path, "rb") as f:
             state = pickle.load(f)
-        for key, value in state.items():
-            setattr(self, key, value)
+        for k, v in state.items():
+            setattr(self, k, v)
         self.invsqrtC = self.B @ np.diag(1 / self.D) @ self.B.T
 
 
-def _evaluate_single(args):
+def _evaluate_single(args) -> float:
     """Worker function for parallel evaluation."""
     params, xml_path, model_config_dict, sensor_stats, num_episodes, max_steps = args
 
-    # Check for NaN in params
     if np.any(np.isnan(params)):
-        return -1000.0  # Return bad fitness for NaN params
+        return -1000.0
 
     config = ModelConfig(**model_config_dict)
     controller = RNNController(config)
@@ -248,58 +212,36 @@ def _evaluate_single(args):
     controller.eval()
 
     env = ReachingEnv(xml_path, sensor_stats=sensor_stats)
-
+    env.set_network_params(params)
     total_reward = 0
-    successes = 0
 
     with torch.no_grad():
-        for ep in range(num_episodes):
-            obs, info = env.reset()
+        for _ in range(num_episodes):
+            obs, _ = env.reset()
             controller.init_hidden(1, torch.device("cpu"))
 
-            episode_reward = 0
             for step in range(max_steps):
-                # Check for NaN in observation
                 if np.any(np.isnan(obs)):
-                    episode_reward = -1000.0
-                    break
+                    obs = np.nan_to_num(obs, nan=0.0)
 
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
                 action, _, _ = controller.forward(obs_tensor)
                 action = action.squeeze(0).numpy()
 
-                # Check for NaN in action
-                if np.any(np.isnan(action)):
-                    episode_reward = -1000.0
-                    break
+                # Sanitize NaN/Inf actions instead of breaking
+                if np.any(~np.isfinite(action)):
+                    action = np.nan_to_num(action, nan=0.5, posinf=1.0, neginf=0.0)
+                action = np.clip(action, 0.0, 1.0)
 
-                # Clip action to valid range
-                action = np.clip(action, 0.0, 2.0)
-
-                obs, reward, terminated, truncated, info = env.step(action)
-
-                # Check for NaN in reward
-                if np.isnan(reward):
-                    reward = -10.0
-
-                episode_reward += reward
+                obs, reward, terminated, truncated, _ = env.step(action)
+                total_reward += reward if not np.isnan(reward) else -10.0
 
                 if terminated or truncated:
-                    if info.get("phase") == "done":
-                        successes += 1
                     break
 
-            total_reward += episode_reward
-
     env.close()
-
     fitness = total_reward / num_episodes
-
-    # Final NaN check
-    if np.isnan(fitness):
-        fitness = -1000.0
-
-    return fitness
+    return -1000.0 if np.isnan(fitness) else fitness
 
 
 def evaluate_controller(
@@ -318,8 +260,9 @@ def evaluate_controller(
     controller.set_flat_params(params)
     controller.eval()
 
-    render_mode = "rgb_array" if render else None
-    env = ReachingEnv(xml_path, render_mode=render_mode, sensor_stats=sensor_stats)
+    env = ReachingEnv(
+        xml_path, render_mode="rgb_array" if render else None, sensor_stats=sensor_stats
+    )
 
     total_reward = 0
     episode_rewards = []
@@ -328,8 +271,8 @@ def evaluate_controller(
     frames = [] if render else None
 
     with torch.no_grad():
-        for ep in range(num_episodes):
-            obs, info = env.reset()
+        for _ in range(num_episodes):
+            obs, _ = env.reset()
             controller.init_hidden(1, torch.device("cpu"))
 
             episode_reward = 0
@@ -347,13 +290,13 @@ def evaluate_controller(
                 action, _, _ = controller.forward(obs_tensor)
                 action = action.squeeze(0).numpy()
 
-                obs, reward, terminated, truncated, step_info = env.step(action)
+                obs, reward, terminated, truncated, info = env.step(action)
                 episode_reward += reward
 
                 if return_trajectories:
                     episode_traj["action"].append(action.copy())
                     episode_traj["reward"].append(reward)
-                    episode_traj["info"].append(step_info)
+                    episode_traj["info"].append(info)
 
                 if render:
                     frame = env.render()
@@ -361,31 +304,24 @@ def evaluate_controller(
                         frames.append(frame)
 
                 if terminated or truncated:
-                    if step_info.get("phase") == "done":
+                    if info.get("phase") == "done":
                         successes += 1
                     break
 
             episode_rewards.append(episode_reward)
             total_reward += episode_reward
-
             if return_trajectories:
                 trajectories.append(episode_traj)
 
     env.close()
 
-    fitness = total_reward / num_episodes
-    info_out = {
+    return total_reward / num_episodes, {
         "episode_rewards": episode_rewards,
         "successes": successes,
         "success_rate": successes / num_episodes,
+        "trajectories": trajectories,
+        "frames": frames,
     }
-
-    if return_trajectories:
-        info_out["trajectories"] = trajectories
-    if render:
-        info_out["frames"] = frames
-
-    return fitness, info_out
 
 
 class CMAESTrainer:
@@ -398,25 +334,20 @@ class CMAESTrainer:
         self.model_config = model_config
         self.sensor_stats = sensor_stats
 
-        # Create output directory
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Initialize controller to get parameter count
         self.controller = RNNController(model_config)
         self.num_params = self.controller.count_parameters()
         print(f"Controller has {self.num_params} parameters")
 
-        # Initialize CMA-ES
-        initial_params = self.controller.get_flat_params()
         self.cmaes = CMAES(
-            dim=self.num_params,
-            population_size=config.population_size,
-            sigma=config.sigma_init,
-            mean=initial_params,
+            self.num_params,
+            config.population_size,
+            config.sigma_init,
+            self.controller.get_flat_params(),
         )
 
-        # Tracking
         self.best_fitness = -np.inf
         self.best_params = None
         self.no_improvement_count = 0
@@ -428,100 +359,61 @@ class CMAESTrainer:
 
         print(f"Starting CMA-ES training for {config.num_generations} generations")
         print(f"Population size: {self.cmaes.lambda_}")
-        print(
-            f"Parallel workers: {config.num_workers if config.use_multiprocessing else 1} (sequential)"
-        )
 
         start_time = time.time()
 
         for gen in range(config.num_generations):
             gen_start = time.time()
-
-            # Sample population
             population = self.cmaes.sample_population()
 
             # Evaluate population
-            if config.use_multiprocessing and config.num_workers > 1:
-                # Parallel evaluation (may not work on Windows/notebooks)
-                try:
-                    args_list = [
-                        (
-                            params,
-                            config.xml_path,
-                            model_config_dict,
-                            self.sensor_stats,
-                            config.num_eval_episodes,
-                            config.max_steps_per_episode,
-                        )
-                        for params in population
-                    ]
+            args_list = [
+                (
+                    p,
+                    config.xml_path,
+                    model_config_dict,
+                    self.sensor_stats,
+                    config.num_eval_episodes,
+                    config.max_steps_per_episode,
+                )
+                for p in population
+            ]
 
+            if config.use_multiprocessing and config.num_workers > 1:
+                try:
                     with ProcessPoolExecutor(
                         max_workers=config.num_workers
                     ) as executor:
-                        fitness_values = list(executor.map(_evaluate_single, args_list))
-                    fitness = np.array(fitness_values)
+                        fitness = np.array(
+                            list(executor.map(_evaluate_single, args_list))
+                        )
                 except Exception as e:
-                    print(
-                        f"Warning: Parallel evaluation failed ({e}), falling back to sequential"
-                    )
+                    print(f"Parallel failed ({e}), using sequential")
                     config.use_multiprocessing = False
                     fitness = np.array(
                         [
-                            _evaluate_single(
-                                (
-                                    params,
-                                    config.xml_path,
-                                    model_config_dict,
-                                    self.sensor_stats,
-                                    config.num_eval_episodes,
-                                    config.max_steps_per_episode,
-                                )
+                            _evaluate_single(a)
+                            for a in (
+                                tqdm(args_list, desc=f"Gen {gen}", leave=False)
+                                if HAS_TQDM
+                                else args_list
                             )
-                            for params in population
                         ]
                     )
             else:
-                # Sequential evaluation (default, always works)
-                if HAS_TQDM:
-                    fitness = np.array(
-                        [
-                            _evaluate_single(
-                                (
-                                    params,
-                                    config.xml_path,
-                                    model_config_dict,
-                                    self.sensor_stats,
-                                    config.num_eval_episodes,
-                                    config.max_steps_per_episode,
-                                )
-                            )
-                            for params in tqdm(
-                                population, desc=f"Gen {gen}", leave=False
-                            )
-                        ]
-                    )
-                else:
-                    fitness = np.array(
-                        [
-                            _evaluate_single(
-                                (
-                                    params,
-                                    config.xml_path,
-                                    model_config_dict,
-                                    self.sensor_stats,
-                                    config.num_eval_episodes,
-                                    config.max_steps_per_episode,
-                                )
-                            )
-                            for params in population
-                        ]
-                    )
+                fitness = np.array(
+                    [
+                        _evaluate_single(a)
+                        for a in (
+                            tqdm(args_list, desc=f"Gen {gen}", leave=False)
+                            if HAS_TQDM
+                            else args_list
+                        )
+                    ]
+                )
 
-            # Update CMA-ES
             self.cmaes.update(population, fitness)
 
-            # Track best
             gen_best_idx = np.argmax(fitness)
             gen_best_fitness = fitness[gen_best_idx]
 
@@ -532,23 +424,16 @@ class CMAESTrainer:
             else:
                 self.no_improvement_count += 1
 
-            # Logging
-            gen_time = time.time() - gen_start
             print(
-                f"Gen {gen}: best={gen_best_fitness:.3f}, mean={fitness.mean():.3f}, "
-                f"sigma={self.cmaes.sigma:.4f}, time={gen_time:.1f}s"
+                f"Gen {gen}: best={gen_best_fitness:.3f}, mean={fitness.mean():.3f}, sigma={self.cmaes.sigma:.4f}, time={time.time() - gen_start:.1f}s"
             )
 
-            # Checkpointing
             if (gen + 1) % config.save_checkpoint_every == 0:
                 self._save_checkpoint(gen)
-                self._render_and_plot(gen)
 
-            # Full inspection (episode summary, simulation video, network activity)
             if config.inspection_every > 0 and (gen + 1) % config.inspection_every == 0:
                 self._run_inspection(gen)
 
-            # Early stopping
             if self.best_fitness >= config.target_fitness:
                 print(f"Target fitness reached at generation {gen}")
                 break
@@ -557,28 +442,20 @@ class CMAESTrainer:
                 print(f"No improvement for {config.patience} generations, stopping")
                 break
 
-        total_time = time.time() - start_time
-        print(f"Training complete in {total_time:.1f}s")
-
-        # Final checkpoint
         self._save_checkpoint(gen, final=True)
-        self._render_and_plot(gen, final=True)
 
         return {
             "best_fitness": self.best_fitness,
             "best_params": self.best_params,
             "generations": gen + 1,
-            "total_time": total_time,
+            "total_time": time.time() - start_time,
         }
 
-    def _save_checkpoint(self, gen: int, final: bool = False):
-        """Save training checkpoint."""
+    def _save_checkpoint(self, gen: int, final: bool = False) -> None:
         suffix = "final" if final else f"gen{gen}"
 
-        # Save CMA-ES state
         self.cmaes.save_state(self.output_dir / f"cmaes_state_{suffix}.pkl")
 
-        # Save best controller
         if self.best_params is not None:
             self.controller.set_flat_params(self.best_params)
             torch.save(
@@ -591,117 +468,62 @@ class CMAESTrainer:
                 self.output_dir / f"best_controller_{suffix}.pt",
             )
 
-        # Save training history
-        history = {
-            "best_fitness_history": self.cmaes.best_fitness_history,
-            "mean_fitness_history": self.cmaes.mean_fitness_history,
-            "sigma_history": self.cmaes.sigma_history,
-        }
         with open(self.output_dir / f"history_{suffix}.json", "w") as f:
-            json.dump(history, f)
-
-        print(f"Checkpoint saved: {suffix}")
-
-    def _render_and_plot(self, gen: int, final: bool = False):
-        """Render evaluation and plot training curves."""
-        suffix = "final" if final else f"gen{gen}"
-
-        if self.best_params is None:
-            return
+            json.dump(
+                {
+                    "best_fitness_history": self.cmaes.best_fitness_history,
+                    "mean_fitness_history": self.cmaes.mean_fitness_history,
+                    "sigma_history": self.cmaes.sigma_history,
+                },
+                f,
+            )
 
         # Plot training curves
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4))
         axes[0].plot(self.cmaes.best_fitness_history, label="Best")
         axes[0].plot(self.cmaes.mean_fitness_history, label="Mean", alpha=0.7)
         axes[0].set_xlabel("Generation")
         axes[0].set_ylabel("Fitness")
-        axes[0].set_title("Fitness History")
         axes[0].legend()
         axes[0].grid(True)
 
         axes[1].plot(self.cmaes.sigma_history)
         axes[1].set_xlabel("Generation")
         axes[1].set_ylabel("Sigma")
-        axes[1].set_title("Step Size")
         axes[1].grid(True)
 
-        # Evaluate and get trajectory
-        fitness, info = evaluate_controller(
-            self.best_params,
-            self.config.xml_path,
-            asdict(self.model_config),
-            self.sensor_stats,
-            num_episodes=1,
-            max_steps=self.config.max_steps_per_episode,
-            render=False,
-            return_trajectories=True,
-        )
-
-        if info["trajectories"]:
-            traj = info["trajectories"][0]
-            rewards = traj["reward"]
-            axes[2].plot(np.cumsum(rewards))
-            axes[2].set_xlabel("Step")
-            axes[2].set_ylabel("Cumulative Reward")
-            axes[2].set_title(f"Episode Reward (fitness={fitness:.2f})")
-            axes[2].grid(True)
-
         plt.tight_layout()
-        plt.savefig(self.output_dir / f"training_curves_{suffix}.png", dpi=150)
+        plt.savefig(
+            self.output_dir / f"training_curves_{suffix}.png", dpi=DEFAULT_PLOT_DPI
+        )
         plt.close()
 
-        print(f"Plots saved: {suffix}")
+        print(f"Checkpoint saved: {suffix}")
 
-    def _run_inspection(self, gen: int):
-        """Run full inspection with episode summary, simulation video, and network activity."""
+    def _run_inspection(self, gen: int) -> None:
         if self.best_params is None:
             return
 
-        print(f"\n--- Running inspection at generation {gen} ---")
-
-        # Import unified episode recorder
-        from utils.episode_recorder import record_and_save
-        from utils.visualization import plot_reflex_connections
-
-        # Set best params on controller
+        print(f"\n--- Inspection at generation {gen} ---")
         self.controller.set_flat_params(self.best_params)
-        self.controller.eval()
 
-        # Create inspection directory
-        inspect_dir = self.output_dir / "inspections" / f"gen{gen}"
-        inspect_dir.mkdir(parents=True, exist_ok=True)
-
-        # Use fixed seed for reproducible recordings
-        episode_seed = gen * 1000  # Deterministic seed based on generation
-
-        # Record episode with unified recorder (single pass, perfectly synced)
         try:
-            data = record_and_save(
-                controller=self.controller,
-                xml_path=self.config.xml_path,
-                sensor_stats=self.sensor_stats,
-                output_dir=str(inspect_dir),
-                max_steps=self.config.max_steps_per_episode,
-                seed=episode_seed,
-                fps=30,
+            from utils.episode_recorder import record_and_save
+
+            inspect_dir = self.output_dir / "inspections" / f"gen{gen}"
+            inspect_dir.mkdir(parents=True, exist_ok=True)
+            record_and_save(
+                self.controller,
+                self.config.xml_path,
+                self.sensor_stats,
+                str(inspect_dir),
+                self.config.max_steps_per_episode,
+                gen * 1000,
+                DEFAULT_VIDEO_FPS,
             )
         except Exception as e:
             print(f"  Warning: Could not record episode: {e}")
-            import traceback
-            traceback.print_exc()
 
-        # Save reflex connections
-        try:
-            plot_reflex_connections(
-                self.controller,
-                output_path=str(inspect_dir / "reflex_connections.png"),
-                show=False,
-            )
-        except Exception as e:
-            print(f"  Warning: Could not plot reflex connections: {e}")
-
-        print(f"  Inspection outputs saved to {inspect_dir}")
         print(f"--- End inspection ---\n")
 
 
@@ -711,56 +533,33 @@ def run_cmaes_training(
     num_generations: int = DEFAULT_NUM_GENERATIONS,
     population_size: int = DEFAULT_POPULATION_SIZE,
     sigma_init: float = DEFAULT_CMAES_SIGMA,
-    num_workers: int = None,
+    num_workers: Optional[int] = None,
     use_multiprocessing: bool = True,
     calibration_episodes: int = DEFAULT_CALIBRATION_EPISODES,
     save_checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY,
-    inspection_every: int = 0,
+    inspection_every: int = DEFAULT_INSPECTION_EVERY,
 ) -> Dict[str, Any]:
-    """
-    Main entry point for CMA-ES training.
-
-    Args:
-        xml_path: Path to MuJoCo XML file
-        output_dir: Output directory for checkpoints
-        num_generations: Number of generations
-        population_size: CMA-ES population size
-        sigma_init: Initial CMA-ES step size
-        num_workers: Number of parallel workers (default: cpu_count - 1)
-        use_multiprocessing: Whether to use parallel evaluation
-        calibration_episodes: Episodes for sensor calibration
-        save_checkpoint_every: Save checkpoint every N generations
-        inspection_every: Run full inspection every N generations (0=disabled)
-
-    Returns:
-        Training results
-    """
-    # Default workers to cpu_count - 1
+    """Main entry point for CMA-ES training."""
     if num_workers is None:
         num_workers = max(1, mp.cpu_count() - 1)
 
-    # Parse model
     parsed_model = parse_mujoco_xml(xml_path)
-    print(f"Model: {parsed_model.model_name}")
-    print(f"Joints: {parsed_model.num_joints}")
-    print(f"Muscles: {parsed_model.num_muscles}")
-    print(f"Sensors: {parsed_model.num_sensors}")
+    print(
+        f"Model: {parsed_model.model_name} (Joints: {parsed_model.num_joints}, Muscles: {parsed_model.num_muscles})"
+    )
 
-    # Calibrate sensors
     print("Calibrating sensors...")
     sensor_stats = calibrate_sensors(xml_path, num_episodes=calibration_episodes)
 
-    # Create model config
     model_config = ModelConfig(
         num_muscles=parsed_model.num_muscles,
         num_sensors=parsed_model.num_sensors,
-        num_target_units=16,  # 4x4 grid
-        target_grid_size=4,
-        target_sigma=0.1,
-        rnn_hidden_size=32,
+        num_target_units=DEFAULT_NUM_TARGET_UNITS,
+        target_grid_size=DEFAULT_TARGET_GRID_SIZE,
+        target_sigma=DEFAULT_TARGET_SIGMA,
+        rnn_hidden_size=DEFAULT_RNN_HIDDEN_SIZE,
     )
 
-    # Create training config
     train_config = CMAESConfig(
         xml_path=xml_path,
         output_dir=output_dir,
@@ -773,24 +572,18 @@ def run_cmaes_training(
         inspection_every=inspection_every,
     )
 
-    # Save configs
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     with open(output_path / "sensor_stats.pkl", "wb") as f:
         pickle.dump(sensor_stats, f)
-
     with open(output_path / "model_config.json", "w") as f:
         json.dump(asdict(model_config), f, indent=2)
-
     with open(output_path / "train_config.json", "w") as f:
         json.dump(asdict(train_config), f, indent=2)
 
-    # Train
     trainer = CMAESTrainer(train_config, model_config, sensor_stats)
-    results = trainer.train()
-
-    return results
+    return trainer.train()
 
 
 if __name__ == "__main__":
@@ -798,27 +591,19 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="CMA-ES Training for Muscle Arm")
     parser.add_argument("xml_path", help="Path to MuJoCo XML file")
-    parser.add_argument(
-        "--output-dir", default="outputs/cmaes", help="Output directory"
-    )
-    parser.add_argument(
-        "--generations", type=int, default=DEFAULT_NUM_GENERATIONS, help="Number of generations"
-    )
-    parser.add_argument("--population", type=int, default=DEFAULT_POPULATION_SIZE, help="Population size")
-    parser.add_argument(
-        "--workers", type=int, default=mp.cpu_count() - 1, help="Number of workers"
-    )
+    parser.add_argument("--output-dir", default="outputs/cmaes")
+    parser.add_argument("--generations", type=int, default=DEFAULT_NUM_GENERATIONS)
+    parser.add_argument("--population", type=int, default=DEFAULT_POPULATION_SIZE)
+    parser.add_argument("--workers", type=int, default=max(1, mp.cpu_count() - 1))
 
     args = parser.parse_args()
 
     results = run_cmaes_training(
         xml_path=args.xml_path,
         output_dir=args.output_dir,
-        n_generations=args.generations,
+        num_generations=args.generations,
         population_size=args.population,
-        n_workers=args.workers,
+        num_workers=args.workers,
     )
 
-    print(f"\nTraining complete!")
-    print(f"Best fitness: {results['best_fitness']:.3f}")
-    print(f"Generations: {results['generations']}")
+    print(f"\nTraining complete! Best fitness: {results['best_fitness']:.3f}")
