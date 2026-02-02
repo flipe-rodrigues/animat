@@ -716,34 +716,42 @@ def plot_episode_summary(
     ax4.set_ylabel('Target Grid Unit')
     ax4.set_title('Target Grid Encoding (Gaussian-tuned)', fontweight='bold')
     
-    # ===== Row 3: Motor Output (full width) =====
-    ax_motor = fig.add_subplot(gs[2, :])
+    # ===== Row 3: Motor Output - Alpha (left) and Gamma (right) =====
+    ax_alpha = fig.add_subplot(gs[2, 0])
+    ax_gamma = fig.add_subplot(gs[2, 1])
     
     # Plot alpha (muscle activations)
     if hasattr(data.alpha, 'shape') and data.alpha.shape[0] > 0:
         for i in range(num_muscles):
-            ax_motor.plot(time, data.alpha[:num_steps, i], 
-                         label=f'α{i+1}', linewidth=1.5, linestyle='-')
+            ax_alpha.plot(time, data.alpha[:num_steps, i], 
+                         label=f'M{i+1}', linewidth=1.5)
     
-    # Plot gamma_static 
+    add_phase_shading(ax_alpha, phases, time)
+    ax_alpha.set_xlabel('Time (s)')
+    ax_alpha.set_ylabel('Activation')
+    ax_alpha.set_title('Alpha Motor Output (α)', fontweight='bold')
+    ax_alpha.legend(loc='upper right', fontsize=8)
+    ax_alpha.grid(True, alpha=0.3)
+    ax_alpha.set_ylim(-0.1, 1.1)
+    
+    # Plot gamma_static and gamma_dynamic
     if hasattr(data.gamma_static, 'shape') and data.gamma_static.shape[0] > 0:
         for i in range(num_muscles):
-            ax_motor.plot(time, data.gamma_static[:num_steps, i], 
-                         label=f'γs{i+1}', linewidth=1.2, linestyle='--', alpha=0.7)
+            ax_gamma.plot(time, data.gamma_static[:num_steps, i], 
+                         label=f'γs{i+1}', linewidth=1.5, linestyle='-')
     
-    # Plot gamma_dynamic
     if hasattr(data.gamma_dynamic, 'shape') and data.gamma_dynamic.shape[0] > 0:
         for i in range(num_muscles):
-            ax_motor.plot(time, data.gamma_dynamic[:num_steps, i], 
-                         label=f'γd{i+1}', linewidth=1.2, linestyle=':', alpha=0.7)
+            ax_gamma.plot(time, data.gamma_dynamic[:num_steps, i], 
+                         label=f'γd{i+1}', linewidth=1.5, linestyle='--')
     
-    add_phase_shading(ax_motor, phases, time)
-    ax_motor.set_xlabel('Time (s)')
-    ax_motor.set_ylabel('Activation')
-    ax_motor.set_title('Motor Output: Alpha (α), Gamma Static (γs), Gamma Dynamic (γd)', fontweight='bold')
-    ax_motor.legend(loc='upper right', fontsize=7, ncol=6)
-    ax_motor.grid(True, alpha=0.3)
-    ax_motor.set_ylim(-0.1, 1.1)
+    add_phase_shading(ax_gamma, phases, time)
+    ax_gamma.set_xlabel('Time (s)')
+    ax_gamma.set_ylabel('Activation')
+    ax_gamma.set_title('Gamma Motor Output (γs, γd)', fontweight='bold')
+    ax_gamma.legend(loc='upper right', fontsize=7, ncol=2)
+    ax_gamma.grid(True, alpha=0.3)
+    ax_gamma.set_ylim(-0.1, 2.1)  # Gamma can go up to 2
     
     # ===== Row 4: Hand Kinematics (full width) =====
     ax5 = fig.add_subplot(gs[3, :])
