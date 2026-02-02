@@ -1,0 +1,15 @@
+{
+  "population_size": 64,
+  "sigma_init": 0.1,
+  "num_generations": 1000,
+  "num_eval_episodes": 5,
+  "max_steps_per_episode": 300,
+  "target_fitness": 50.0,
+  "patience": 50,
+  "checkpoint_period": 25,
+  "inspection_period": 250,
+  "num_workers": 12,
+  "use_multiprocessing": true,
+  "xml_path": "arm.xml",
+  "output_dir": "outputs"
+}

@@ -1,0 +1,13 @@
+{
+  "num_muscles": 4,
+  "num_sensors": 12,
+  "num_target_units": 16,
+  "rnn_hidden_size": 32,
+  "rnn_type": "rnn",
+  "num_rnn_layers": 1,
+  "proprioceptive_bias": true,
+  "target_encoding_bias": true,
+  "input_projection_bias": true,
+  "output_bias": true,
+  "reflex_bias": false
+}
