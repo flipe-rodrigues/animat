@@ -7,7 +7,8 @@ Packages:
 - envs: Environment components (plant physics, reaching task)
 - models: Neural network controllers and modules
 - training: Training algorithms (CMA-ES, distillation)
-- utils: Visualization and model parsing utilities
+- utils: Visualization utilities
+- examples: Interactive training and visualization examples
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

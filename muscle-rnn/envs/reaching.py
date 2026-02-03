@@ -6,31 +6,39 @@ import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 
-from envs.plant import MuJoCoPlant
-from core.types import Proprioception, Observation
-from core.constants import (
-    DEFAULT_PRE_DELAY_RANGE,
-    DEFAULT_HOLD_DURATION_RANGE,
-    DEFAULT_POST_DELAY_RANGE,
-    DEFAULT_MAX_EPISODE_TIME,
-    DEFAULT_REACH_THRESHOLD,
-    DEFAULT_HOLD_REWARD_WEIGHT,
-    DEFAULT_ENERGY_PENALTY_WEIGHT,
-    DEFAULT_REACH_BONUS,
-    DEFAULT_SUCCESS_REWARD,
-    DEFAULT_RIDGE_PENALTY_WEIGHT,
-    DEFAULT_LASSO_PENALTY_WEIGHT,
-    DEFAULT_RENDER_MODE,
-    DEFAULT_VIDEO_FPS,
-    OBS_CLIP_MIN,
-    OBS_CLIP_MAX,
-)
+from plants.mujoco import MuJoCoPlant
+
+
+# --- Proprioception Types (inlined from core/types.py) ---
+
+@dataclass
+class Proprioception:
+    """Proprioceptive observations (numpy arrays)."""
+    lengths: np.ndarray
+    velocities: np.ndarray
+    forces: np.ndarray
+
+    @property
+    def num_muscles(self) -> int:
+        return len(self.lengths)
+
+    def to_flat(self) -> np.ndarray:
+        return np.concatenate([self.lengths, self.velocities, self.forces])
+
+
+@dataclass
+class Observation:
+    """Complete observation from environment (numpy)."""
+    proprio: Proprioception
+    target: np.ndarray
+
+    def to_flat(self) -> np.ndarray:
+        return np.concatenate([self.proprio.to_flat(), self.target])
 
 
 @dataclass
 class TrialConfig:
     """Configuration for a single trial."""
-
     pre_target_delay: float
     hold_duration: float
     post_hold_delay: float
@@ -42,24 +50,24 @@ class ReachingEnv(gym.Env):
     """Reaching task environment with structured observations."""
 
     metadata = {
-        "render_modes": [DEFAULT_RENDER_MODE, "rgb_array"],
-        "render_fps": DEFAULT_VIDEO_FPS,
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 60,
     }
 
     def __init__(
         self,
         xml_path: str,
-        render_mode: Optional[str] = DEFAULT_RENDER_MODE,
-        pre_delay_range: Tuple[float, float] = DEFAULT_PRE_DELAY_RANGE,
-        hold_duration_range: Tuple[float, float] = DEFAULT_HOLD_DURATION_RANGE,
-        post_delay_range: Tuple[float, float] = DEFAULT_POST_DELAY_RANGE,
-        max_episode_time: float = DEFAULT_MAX_EPISODE_TIME,
+        render_mode: Optional[str] = None,
+        pre_delay_range: Tuple[float, float] = (0.2, 0.5),
+        hold_duration_range: Tuple[float, float] = (0.3, 0.8),
+        post_delay_range: Tuple[float, float] = (0.1, 0.3),
+        max_episode_time: float = 3.0,
         workspace_bounds: Optional[Dict[str, Tuple[float, float]]] = None,
-        reach_threshold: float = DEFAULT_REACH_THRESHOLD,
-        hold_reward_weight: float = DEFAULT_HOLD_REWARD_WEIGHT,
-        energy_penalty_weight: float = DEFAULT_ENERGY_PENALTY_WEIGHT,
-        ridge_penalty_weight: float = DEFAULT_RIDGE_PENALTY_WEIGHT,
-        lasso_penalty_weight: float = DEFAULT_LASSO_PENALTY_WEIGHT,
+        reach_threshold: float = 0.05,
+        hold_reward_weight: float = 1.0,
+        energy_penalty_weight: float = 0.01,
+        ridge_penalty_weight: float = 1e-4,
+        lasso_penalty_weight: float = 0.0,
         sensor_stats: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
@@ -67,7 +75,6 @@ class ReachingEnv(gym.Env):
         self.plant = MuJoCoPlant(xml_path, render_mode)
         self.render_mode = render_mode
 
-        # Store parameters
         self.pre_delay_range = pre_delay_range
         self.hold_duration_range = hold_duration_range
         self.post_delay_range = post_delay_range
@@ -78,17 +85,14 @@ class ReachingEnv(gym.Env):
         self.ridge_penalty_weight = ridge_penalty_weight
         self.lasso_penalty_weight = lasso_penalty_weight
 
-        # Network parameters for regularization (set externally, computed once per trial)
         self._network_params: Optional[np.ndarray] = None
         self._reg_penalty: float = 0.0
 
-        # Dimensions
         self.num_muscles = self.plant.num_muscles
         self.num_joints = self.plant.num_joints
         self.num_sensors = self.plant.num_sensors
         self.dt = self.plant.dt
 
-        # Workspace
         if workspace_bounds is not None:
             self.workspace_bounds = workspace_bounds
             self._reachable_positions = None
@@ -97,15 +101,12 @@ class ReachingEnv(gym.Env):
             self.workspace_bounds = {k: workspace_data[k] for k in ["x", "y", "z"]}
             self._reachable_positions = workspace_data.get("positions")
 
-        # Sensor normalization
         self.sensor_stats = sensor_stats or self._default_sensor_stats()
 
-        # Gym spaces
         obs_dim = self.num_muscles * 3 + 3
         self.observation_space = spaces.Box(-np.inf, np.inf, (obs_dim,), np.float32)
         self.action_space = spaces.Box(0.0, 1.0, (self.num_muscles,), np.float32)
 
-        # Trial state
         self.trial_config: Optional[TrialConfig] = None
         self.episode_step = 0
         self.episode_time = 0.0
@@ -132,7 +133,7 @@ class ReachingEnv(gym.Env):
         )
 
     def set_network_params(self, params: np.ndarray) -> None:
-        """Set network parameters and compute regularization penalty (once per trial)."""
+        """Set network parameters and compute regularization penalty."""
         self._network_params = params
         ridge = self.ridge_penalty_weight * np.sum(params**2)
         lasso = self.lasso_penalty_weight * np.sum(np.abs(params))
@@ -164,8 +165,7 @@ class ReachingEnv(gym.Env):
 
         proprio = Proprioception(
             lengths=(state.muscle_lengths - stats["length_mean"]) / stats["length_std"],
-            velocities=(state.muscle_velocities - stats["velocity_mean"])
-            / stats["velocity_std"],
+            velocities=(state.muscle_velocities - stats["velocity_mean"]) / stats["velocity_std"],
             forces=(state.muscle_forces - stats["force_mean"]) / stats["force_std"],
         )
         target = (
@@ -177,9 +177,7 @@ class ReachingEnv(gym.Env):
 
     def _get_flat_obs(self) -> np.ndarray:
         obs = self.get_observation()
-        flat = obs.to_flat()
-        flat = np.nan_to_num(flat, nan=0.0, posinf=OBS_CLIP_MAX, neginf=OBS_CLIP_MIN)
-        return np.clip(flat, OBS_CLIP_MIN, OBS_CLIP_MAX).astype(np.float32)
+        return obs.to_flat().astype(np.float32)
 
     def _distance_to_target(self) -> float:
         return np.linalg.norm(
@@ -196,9 +194,7 @@ class ReachingEnv(gym.Env):
             self.target_visible = True
             self.plant.set_target_position(tc.target_position)
 
-        elif (
-            self.phase == "reach" and self._distance_to_target() < self.reach_threshold
-        ):
+        elif self.phase == "reach" and self._distance_to_target() < self.reach_threshold:
             self.phase = "hold"
             self.hold_start_time = self.episode_time
 
@@ -216,28 +212,19 @@ class ReachingEnv(gym.Env):
                 self.phase = "done"
 
     def _compute_reward(self, action: np.ndarray) -> float:
-
         reward = 0.0
-
-        # Regularization penalty
         reward -= self._reg_penalty
-
-        # Energy penalty
         energy = np.sum(action**2)
         reward -= self.energy_penalty_weight * energy
 
         if self.phase in ["reach", "hold"]:
-
-            # Distance penalty
             distance = self._distance_to_target()
             reward -= distance
-
-            # Reach bonus
             if distance < self.reach_threshold:
-                reward += DEFAULT_REACH_BONUS
+                reward += 0.5  # reach bonus
 
         if self.phase in ["post_delay", "done"]:
-            reward += DEFAULT_SUCCESS_REWARD
+            reward += 1.0  # success reward
 
         return reward
 
@@ -278,8 +265,6 @@ class ReachingEnv(gym.Env):
         self._update_phase()
 
         reward = self._compute_reward(action)
-        reward = -1.0 if np.isnan(reward) or np.isinf(reward) else reward
-
         terminated = self.phase == "done"
         truncated = self.episode_time >= self.max_episode_time
 

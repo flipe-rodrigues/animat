@@ -5,13 +5,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Tuple, List
 
-from core.constants import (
-    DEFAULT_TIMESTEP,
-    DEFAULT_CALIBRATION_EPISODES,
-    DEFAULT_CALIBRATION_STEPS,
-    DEFAULT_WORKSPACE_SAMPLES,
-)
-
 
 # --- Data Classes ---
 
@@ -55,7 +48,7 @@ class ParsedModel:
     muscles: List[MuscleInfo] = field(default_factory=list)
     sensors: List[SensorInfo] = field(default_factory=list)
     bodies: List[BodyInfo] = field(default_factory=list)
-    timestep: float = DEFAULT_TIMESTEP
+    timestep: float = 0.01
 
     @property
     def num_joints(self) -> int:
@@ -90,18 +83,16 @@ def _parse_tuple(s: str, n: int = 3) -> Tuple:
     return tuple(values[:n]) if len(values) >= n else tuple(values + [0.0] * (n - len(values)))
 
 
-def parse_mujoco_xml(xml_path: str) -> ParsedModel:
+def _parse_mujoco_xml(xml_path: str) -> ParsedModel:
     """Parse a MuJoCo XML file and extract model information."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
 
     model_name = root.get("model", "unnamed_model")
 
-    # Parse timestep
     option = root.find("option")
     timestep = float(option.get("timestep", "0.01")) if option is not None else 0.01
 
-    # Parse defaults
     default_muscle, default_joint = {}, {}
     defaults = root.find("default")
     if defaults is not None:
@@ -113,7 +104,6 @@ def parse_mujoco_xml(xml_path: str) -> ParsedModel:
             default_joint["stiffness"] = float(joint_def.get("stiffness", "0"))
             default_joint["damping"] = float(joint_def.get("damping", "0"))
 
-    # Parse bodies and joints
     joints, bodies = [], []
 
     def parse_body(elem):
@@ -141,7 +131,6 @@ def parse_mujoco_xml(xml_path: str) -> ParsedModel:
         for body_elem in worldbody.findall("body"):
             parse_body(body_elem)
 
-    # Parse muscles
     muscles = []
     actuator_section = root.find("actuator")
     if actuator_section is not None:
@@ -156,7 +145,6 @@ def parse_mujoco_xml(xml_path: str) -> ParsedModel:
                 ctrl_range=ctrl_range,
             ))
 
-    # Parse sensors
     sensors = []
     sensor_section = root.find("sensor")
     if sensor_section is not None:
@@ -206,7 +194,7 @@ class MuJoCoPlant:
 
         self.xml_path = xml_path
         self.render_mode = render_mode
-        self.parsed_model = parse_mujoco_xml(xml_path)
+        self.parsed_model = _parse_mujoco_xml(xml_path)
 
         self._mj_model = mujoco.MjModel.from_xml_path(xml_path)
         self._mj_data = mujoco.MjData(self._mj_model)
@@ -228,6 +216,42 @@ class MuJoCoPlant:
     @property
     def joints(self) -> List[JointInfo]:
         return self.parsed_model.joints
+
+    @property
+    def model_name(self) -> str:
+        return self.parsed_model.model_name
+
+    def calibrate(self, num_episodes: int = 100, max_steps: int = 200) -> Dict[str, np.ndarray]:
+        """Calibrate sensor statistics by running random episodes."""
+        all_lengths, all_velocities, all_forces = [], [], []
+
+        for _ in range(num_episodes):
+            joint_ranges = [
+                (np.deg2rad(j.range[0]), np.deg2rad(j.range[1])) if j.range else (-np.pi, np.pi)
+                for j in self.parsed_model.joints
+            ]
+            initial_angles = np.array([np.random.uniform(lo, hi) for lo, hi in joint_ranges])
+            self.reset(initial_angles)
+
+            for _ in range(max_steps):
+                action = np.random.uniform(0, 1, self.num_muscles)
+                state = self.step(action)
+                all_lengths.append(state.muscle_lengths)
+                all_velocities.append(state.muscle_velocities)
+                all_forces.append(state.muscle_forces)
+
+        all_lengths = np.array(all_lengths)
+        all_velocities = np.array(all_velocities)
+        all_forces = np.array(all_forces)
+
+        return {
+            "length_mean": all_lengths.mean(axis=0),
+            "length_std": all_lengths.std(axis=0) + 1e-8,
+            "velocity_mean": all_velocities.mean(axis=0),
+            "velocity_std": all_velocities.std(axis=0) + 1e-8,
+            "force_mean": all_forces.mean(axis=0),
+            "force_std": all_forces.std(axis=0) + 1e-8,
+        }
 
     def _find_body_id(self, name: str) -> int:
         import mujoco
@@ -275,7 +299,7 @@ class MuJoCoPlant:
             self._mj_data.mocap_pos[self._target_mocap_id] = position
             self._mj_model.geom_rgba[self._target_geom_id][-1] = 1.0
 
-    def estimate_workspace(self, num_samples: int = DEFAULT_WORKSPACE_SAMPLES) -> Dict:
+    def estimate_workspace(self, num_samples: int = 1000) -> Dict:
         """Estimate reachable workspace by sampling joint configurations."""
         import mujoco
 
@@ -342,8 +366,8 @@ class MuJoCoPlant:
 
 def calibrate_sensors(
     xml_path: str,
-    num_episodes: int = DEFAULT_CALIBRATION_EPISODES,
-    max_steps: int = DEFAULT_CALIBRATION_STEPS,
+    num_episodes: int = 100,
+    max_steps: int = 200,
 ) -> Dict[str, np.ndarray]:
     """Calibrate sensor statistics by running random episodes."""
     plant = MuJoCoPlant(xml_path)
@@ -379,16 +403,3 @@ def calibrate_sensors(
         "force_mean": all_forces.mean(axis=0),
         "force_std": all_forces.std(axis=0) + 1e-8,
     }
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        model = parse_mujoco_xml(sys.argv[1])
-        print(f"\nModel: {model.model_name}")
-        print(f"Joints: {model.num_joints}, Muscles: {model.num_muscles}, Sensors: {model.num_sensors}")
-        for k, v in get_model_dimensions(model).items():
-            print(f"  {k}: {v}")
-    else:
-        print("Usage: python plant.py <path_to_mujoco_xml>")

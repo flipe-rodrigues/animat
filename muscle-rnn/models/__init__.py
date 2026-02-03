@@ -1,16 +1,10 @@
 """Neural network models for muscle-driven arm control."""
 
-from .controllers import ControllerBase, RNNController, MLPController, create_controller
-from .modules import SensoryModule, MotorModule, TargetEncoder, RNNCore, MLPCore
+from .controllers import BaseController, RNNController, MLPController, ControllerConfig
 
 __all__ = [
-    "ControllerBase",
+    "BaseController",
     "RNNController",
     "MLPController",
-    "create_controller",
-    "SensoryModule",
-    "MotorModule",
-    "TargetEncoder",
-    "RNNCore",
-    "MLPCore",
+    "ControllerConfig",
 ]

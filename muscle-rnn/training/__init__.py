@@ -1,17 +1,24 @@
 """Training algorithms - CMA-ES and distillation learning."""
 
-from .train_cmaes import run_cmaes_training, CMAESConfig, CMAES, CMAESTrainer
-from .train_distillation import run_distillation_training, DistillationConfig
-from .evaluation import evaluate_controller, evaluate_fitness, collect_trajectory_data
+from .train_cmaes import cmaes_optimize, evaluate_controller
+from .train_distillation import (
+    train_teacher_bc,
+    train_student_distillation,
+    train_with_sb3_bc,
+    collect_random_data,
+    collect_expert_data,
+    TrajectoryDataset,
+    BehaviorCloningDataset,
+)
 
 __all__ = [
-    "run_cmaes_training",
-    "CMAESConfig",
-    "CMAES",
-    "CMAESTrainer",
-    "run_distillation_training",
-    "DistillationConfig",
+    "cmaes_optimize",
     "evaluate_controller",
-    "evaluate_fitness",
-    "collect_trajectory_data",
+    "train_teacher_bc",
+    "train_student_distillation",
+    "train_with_sb3_bc",
+    "collect_random_data",
+    "collect_expert_data",
+    "TrajectoryDataset",
+    "BehaviorCloningDataset",
 ]

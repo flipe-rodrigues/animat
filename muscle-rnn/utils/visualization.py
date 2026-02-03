@@ -21,22 +21,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from envs.reaching import ReachingEnv
-from models.controllers import RNNController, MLPController, ModelConfig
-from models.modules.target import TargetEncoder
-from core.constants import (
-    DEFAULT_MAX_EPISODE_STEPS,
-    DEFAULT_CALIBRATION_EPISODES,
-    DEFAULT_TARGET_GRID_SIZE,
-    DEFAULT_TARGET_SIGMA,
-    DEFAULT_VIDEO_FPS,
-    DEFAULT_PLOT_DPI,
-)
+from models.controllers import RNNController, MLPController, ControllerConfig
 
 
 def load_controller(
     checkpoint_path: str,
     controller_type: str = 'rnn'
-) -> Tuple[torch.nn.Module, ModelConfig, Dict]:
+) -> Tuple[torch.nn.Module, Dict, Dict]:
     """
     Load a trained controller from checkpoint.
     
@@ -46,31 +37,47 @@ def load_controller(
         
     Returns:
         controller: Loaded controller
-        config: Model configuration
+        config_dict: Model configuration dict
         checkpoint: Full checkpoint dict
     """
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     
-    config_dict = checkpoint['model_config']
-    config = ModelConfig(**config_dict)
+    config_dict = checkpoint.get('model_config', {})
     
     if controller_type == 'rnn':
+        # RNN uses int for num_core_units
+        config = ControllerConfig(
+            num_muscles=config_dict.get('num_muscles', 4),
+            num_core_units=config_dict.get('num_core_units', config_dict.get('rnn_hidden_size', 32)),
+            target_grid_size=config_dict.get('target_grid_size', 4),
+            target_sigma=config_dict.get('target_sigma', 0.5),
+        )
         controller = RNNController(config)
     else:
+        # MLP uses list for num_core_units
+        hidden_sizes = config_dict.get('num_core_units', config_dict.get('hidden_sizes', [64, 64]))
+        if isinstance(hidden_sizes, int):
+            hidden_sizes = [hidden_sizes, hidden_sizes]
+        config = ControllerConfig(
+            num_muscles=config_dict.get('num_muscles', 4),
+            num_core_units=hidden_sizes,
+            target_grid_size=config_dict.get('target_grid_size', 4),
+            target_sigma=config_dict.get('target_sigma', 0.5),
+        )
         controller = MLPController(config)
     
     controller.load_state_dict(checkpoint['model_state_dict'])
     controller.eval()
     
-    return controller, config, checkpoint
+    return controller, config_dict, checkpoint
 
 
 def evaluate_controller(
     controller: torch.nn.Module,
     xml_path: str,
     sensor_stats: Dict,
-    num_episodes: int = DEFAULT_CALIBRATION_EPISODES,
-    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    num_episodes: int = 100,
+    max_steps: int = 300,
     verbose: bool = True
 ) -> Dict[str, Any]:
     """
@@ -94,15 +101,14 @@ def evaluate_controller(
     with torch.no_grad():
         for ep in range(num_episodes):
             obs, info = env.reset()
-            controller.init_hidden(1, device)
+            controller._reset_state()
             
             episode_reward = 0
             reach_time = None
             
             for step in range(max_steps):
-                obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
-                action, _, _ = controller.forward(obs_tensor)
-                action = action.squeeze(0).cpu().numpy()
+                action, _ = controller.predict(obs, deterministic=True)
+                action = np.clip(action, 0.0, 1.0)
                 
                 obs, reward, terminated, truncated, step_info = env.step(action)
                 episode_reward += reward
@@ -150,7 +156,7 @@ def record_episode(
     controller: torch.nn.Module,
     xml_path: str,
     sensor_stats: Dict,
-    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    max_steps: int = 300,
     seed: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
@@ -171,7 +177,7 @@ def record_episode(
     controller.eval()
     
     obs, info = env.reset(seed=seed)
-    controller.init_hidden(1, device)
+    controller._reset_state()
     
     trajectory = {
         'observations': [obs.copy()],
@@ -196,8 +202,9 @@ def record_episode(
             
             # Get action
             obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
-            action, _, step_info = controller.forward(obs_tensor)
+            action, step_info = controller.forward(obs_tensor)
             action = action.squeeze(0).cpu().numpy()
+            action = np.clip(action, 0.0, 1.0)
             
             # Store network outputs
             trajectory['alpha'].append(step_info['alpha'].squeeze(0).cpu().numpy())
@@ -206,9 +213,9 @@ def record_episode(
             
             if 'sensory_outputs' in step_info:
                 sensory = step_info['sensory_outputs']
-                trajectory['sensory_Ia'].append(sensory['type_Ia'].squeeze(0).cpu().numpy())
-                trajectory['sensory_II'].append(sensory['type_II'].squeeze(0).cpu().numpy())
-                trajectory['sensory_Ib'].append(sensory['type_Ib'].squeeze(0).cpu().numpy())
+                trajectory['sensory_Ia'].append(sensory['spindle_Ia'].squeeze(0).cpu().numpy())
+                trajectory['sensory_II'].append(sensory['spindle_II'].squeeze(0).cpu().numpy())
+                trajectory['sensory_Ib'].append(sensory['golgi_Ib'].squeeze(0).cpu().numpy())
             
             # Step environment
             obs, reward, terminated, truncated, env_info = env.step(action)
@@ -234,7 +241,7 @@ def record_episode(
 def save_video(
     frames: List[np.ndarray],
     output_path: str,
-    fps: int = DEFAULT_VIDEO_FPS
+    fps: int = 60
 ):
     """Save frames as video."""
     import cv2
@@ -367,7 +374,7 @@ def plot_trajectory(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI)
+        plt.savefig(output_path, dpi=150)
         print(f"Plot saved to {output_path}")
     
     if show:
@@ -418,7 +425,7 @@ def plot_training_curves(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI)
+        plt.savefig(output_path, dpi=150)
         print(f"Plot saved to {output_path}")
     
     if show:
@@ -432,7 +439,7 @@ def compare_controllers(
     labels: List[str],
     xml_path: str,
     sensor_stats: Dict,
-    num_episodes: int = DEFAULT_CALIBRATION_EPISODES // 2
+    num_episodes: int = 50
 ) -> Dict[str, Any]:
     """Compare multiple controllers."""
     results = {}
@@ -569,7 +576,7 @@ def plot_weight_distributions(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"Weight distributions saved to {output_path}")
     
     if show:
@@ -637,7 +644,7 @@ def plot_weight_matrices(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"Weight matrices saved to {output_path}")
     
     if show:
@@ -702,7 +709,7 @@ def plot_reflex_connections(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"Reflex connections saved to {output_path}")
     
     if show:
@@ -729,11 +736,11 @@ def plot_sensory_weights(
     Ib_weights = []
     
     for name, param in controller.named_parameters():
-        if 'proprioceptive.type_Ia' in name and 'weight' in name:
+        if 'sensory.spindle_Ia' in name and 'weight' in name:
             Ia_weights.append(param.data.cpu().numpy().flatten()[0])
-        elif 'proprioceptive.type_II' in name and 'weight' in name:
+        elif 'sensory.spindle_II' in name and 'weight' in name:
             II_weights.append(param.data.cpu().numpy().flatten()[0])
-        elif 'proprioceptive.type_Ib' in name and 'weight' in name:
+        elif 'sensory.golgi_Ib' in name and 'weight' in name:
             Ib_weights.append(param.data.cpu().numpy().flatten()[0])
     
     if not Ia_weights:
@@ -781,7 +788,7 @@ def plot_sensory_weights(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"Sensory weights saved to {output_path}")
     
     if show:
@@ -837,7 +844,7 @@ def plot_rnn_weights(
     plt.tight_layout()
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"RNN weights saved to {output_path}")
     
     if show:
@@ -939,12 +946,21 @@ def plot_episode_summary(
     forces = np.array(forces_list)
     target_xyz = np.array(target_xyz_list)
     
-    # Encode target positions to grid (same as controller does)
-    target_encoder = TargetEncoder(grid_size=4, sigma=0.1)
+    # Encode target positions to grid (Gaussian population code)
+    grid_size, sigma = 4, 0.1
+    x_centers = np.linspace(-0.3, 0.3, grid_size)
+    y_centers = np.linspace(0.1, 0.5, grid_size)
+    xx, yy = np.meshgrid(x_centers, y_centers, indexing='xy')
+    grid_centers = np.stack([xx.flatten(), yy.flatten()], axis=1)  # [16, 2]
+    
     target_encoding = []
     for xyz in target_xyz:
-        encoded = target_encoder.encode(torch.tensor(xyz, dtype=torch.float32).unsqueeze(0))
-        target_encoding.append(encoded.squeeze(0).numpy())  # Remove batch dim
+        target_xy = xyz[:2]
+        diff = target_xy - grid_centers  # [16, 2]
+        dist_sq = (diff**2).sum(axis=1)  # [16]
+        activation = np.exp(-dist_sq / (2 * sigma**2))
+        activation = activation / (activation.sum() + 1e-8)
+        target_encoding.append(activation)
     target_encoding = np.array(target_encoding)  # [num_steps, 16]
     target_dim = target_encoding.shape[1]  # Should be 16 for 4x4 grid
     
@@ -1178,7 +1194,7 @@ def plot_episode_summary(
     plt.suptitle('Episode Summary', fontsize=14, fontweight='bold', y=1.0)
     
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches='tight')
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
         print(f"Episode summary saved to {output_path}")
     
     if show:
@@ -1193,7 +1209,7 @@ def inspect_checkpoint(
     sensor_stats: Optional[Dict] = None,
     output_dir: Optional[str] = None,
     num_episodes: int = 1,
-    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    max_steps: int = 300,
     show: bool = True
 ):
     """

@@ -25,18 +25,6 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.constants import (
-    DEFAULT_NUM_MUSCLES,
-    DEFAULT_RNN_HIDDEN_SIZE,
-    DEFAULT_TARGET_GRID_SIZE,
-    DEFAULT_MAX_EPISODE_STEPS,
-    DEFAULT_DPI,
-    DEFAULT_PLOT_DPI,
-    DEFAULT_SHOW_RNN_UNITS,
-    DEFAULT_VIDEO_FPS,
-    DEFAULT_TARGET_SIGMA,
-)
-
 
 @dataclass
 class EpisodeData:
@@ -101,12 +89,12 @@ class NetworkDiagram:
 
     def __init__(
         self,
-        num_muscles: int = DEFAULT_NUM_MUSCLES,
-        rnn_hidden_size: int = DEFAULT_RNN_HIDDEN_SIZE,
-        target_grid_size: int = DEFAULT_TARGET_GRID_SIZE,
+        num_muscles: int = 4,
+        rnn_hidden_size: int = 32,
+        target_grid_size: int = 4,
         figsize: Tuple[float, float] = (10, 8),
-        dpi: int = DEFAULT_DPI,
-        show_rnn_units: int = DEFAULT_SHOW_RNN_UNITS,
+        dpi: int = 100,
+        show_rnn_units: int = 32,
     ):
         self.num_muscles = num_muscles
         self.rnn_hidden_size = rnn_hidden_size
@@ -265,8 +253,8 @@ class NetworkDiagram:
         self.ax.text(1.8, 4.4, "II", fontsize=8, ha="center", color="white")
         self.ax.text(2.6, 4.4, "Ib", fontsize=8, ha="center", color="white")
 
-        self.ax.text(6, 7.5, "Target Grid", **label_style)
-        self.ax.text(6, 4.8, "RNN Hidden", **label_style)
+        self.ax.text(6, 7.5, "Target Encoding", **label_style)
+        self.ax.text(6, 4.8, "RNN Core", **label_style)
 
         self.ax.text(10, 4.8, "Motor Output", **label_style)
         self.ax.text(9, 4.4, "α", fontsize=9, ha="center", color="white")
@@ -337,31 +325,28 @@ class EpisodeRecorder:
         controller: torch.nn.Module,
         xml_path: str,
         sensor_stats: Dict,
-        target_grid_size: int = DEFAULT_TARGET_GRID_SIZE,
-        target_sigma: float = DEFAULT_TARGET_SIGMA,
+        target_grid_size: int = 4,
+        target_sigma: float = 0.5,
         workspace_bounds: Optional[Dict] = None,
     ):
         self.controller = controller
         self.xml_path = xml_path
         self.sensor_stats = sensor_stats
 
-        # Get config from controller
-        self.config = controller.config
-        self.num_muscles = self.config.num_muscles
+        # Get attributes from controller's config
+        self.num_muscles = controller.config.num_muscles
+        num_core_units = controller.config.num_core_units
+        ws_bounds = workspace_bounds or controller.config.workspace_bounds
 
-        # Target encoder for visualization
-        from models.modules.target import TargetEncoder
-
-        self.target_encoder = TargetEncoder(
-            grid_size=target_grid_size,
-            sigma=target_sigma,
-            workspace_bounds=workspace_bounds or self.config.workspace_bounds,
-        )
+        # Store for target encoding visualization
+        self.target_grid_size = target_grid_size
+        self.target_sigma = target_sigma
+        self.workspace_bounds = ws_bounds
 
         # Network diagram renderer
         self.diagram = NetworkDiagram(
             num_muscles=self.num_muscles,
-            rnn_hidden_size=self.config.rnn_hidden_size,
+            rnn_hidden_size=num_core_units,
             target_grid_size=target_grid_size,
         )
 
@@ -369,7 +354,7 @@ class EpisodeRecorder:
 
     def record(
         self,
-        max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+        max_steps: int = 300,
         seed: Optional[int] = None,
         render_mujoco: bool = True,
         render_network: bool = True,
@@ -400,7 +385,7 @@ class EpisodeRecorder:
 
         # Reset with seed
         obs, info = env.reset(seed=seed)
-        self.controller.init_hidden(1, self.device)
+        self.controller._reset_state()
 
         # Store target position
         data.target_position = info.get("target_position", np.zeros(3))
@@ -423,7 +408,7 @@ class EpisodeRecorder:
                 obs_tensor = (
                     torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(self.device)
                 )
-                action, _, net_info = self.controller.forward(obs_tensor)
+                action, net_info = self.controller.forward(obs_tensor)
                 action_np = action.squeeze(0).cpu().numpy()
 
                 # Sanitize action: replace NaN/Inf, clip to [0, 1] for muscle activations
@@ -492,9 +477,9 @@ class EpisodeRecorder:
         # Sensory outputs
         if "sensory_outputs" in net_info:
             sensory = net_info["sensory_outputs"]
-            data.sensory_Ia.append(sanitize(sensory["type_Ia"].squeeze().cpu().numpy()))
-            data.sensory_II.append(sanitize(sensory["type_II"].squeeze().cpu().numpy()))
-            data.sensory_Ib.append(sanitize(sensory["type_Ib"].squeeze().cpu().numpy()))
+            data.sensory_Ia.append(sanitize(sensory["spindle_Ia"].squeeze().cpu().numpy()))
+            data.sensory_II.append(sanitize(sensory["spindle_II"].squeeze().cpu().numpy()))
+            data.sensory_Ib.append(sanitize(sensory["golgi_Ib"].squeeze().cpu().numpy()))
 
         # RNN hidden
         if "rnn_hidden" in net_info:
@@ -581,9 +566,9 @@ def record_and_save(
     xml_path: str,
     sensor_stats: Dict,
     output_dir: str,
-    max_steps: int = DEFAULT_MAX_EPISODE_STEPS,
+    max_steps: int = 300,
     seed: Optional[int] = None,
-    fps: int = DEFAULT_VIDEO_FPS,
+    fps: int = 60,
 ) -> EpisodeData:
     """
     Record episode and save all outputs.
@@ -609,9 +594,10 @@ def record_and_save(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Get target grid size from controller config
-    config = controller.config
-    target_grid_size = int(np.sqrt(config.num_target_units))
+    # Get target grid size from controller
+    target_grid_size = controller.target_grid_size
+    target_sigma = controller.target_sigma
+    workspace_bounds = controller.workspace_bounds
 
     # Record
     recorder = EpisodeRecorder(
@@ -619,8 +605,8 @@ def record_and_save(
         xml_path=xml_path,
         sensor_stats=sensor_stats,
         target_grid_size=target_grid_size,
-        target_sigma=config.target_sigma,
-        workspace_bounds=config.workspace_bounds,
+        target_sigma=target_sigma,
+        workspace_bounds=workspace_bounds,
     )
 
     print(f"Recording episode (seed={seed})...")
@@ -649,7 +635,7 @@ def record_and_save(
     return data
 
 
-def _save_video(frames: List[np.ndarray], path: str, fps: int = DEFAULT_VIDEO_FPS):
+def _save_video(frames: List[np.ndarray], path: str, fps: int = 60):
     """Save frames as video."""
     import cv2
 
@@ -953,7 +939,7 @@ def plot_episode_summary(
     plt.suptitle("Episode Summary", fontsize=14, fontweight="bold", y=1.0)
 
     if output_path:
-        plt.savefig(output_path, dpi=DEFAULT_PLOT_DPI, bbox_inches="tight")
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
         print(f"Episode summary saved to {output_path}")
 
     if show:
@@ -967,20 +953,20 @@ if __name__ == "__main__":
     print("Testing NetworkDiagram...")
 
     diagram = NetworkDiagram(
-        num_muscles=DEFAULT_NUM_MUSCLES,
-        rnn_hidden_size=DEFAULT_RNN_HIDDEN_SIZE,
-        target_grid_size=DEFAULT_TARGET_GRID_SIZE,
+        num_muscles=4,
+        rnn_hidden_size=32,
+        target_grid_size=4,
     )
 
     activations = {
-        "Ia": np.random.randn(DEFAULT_NUM_MUSCLES),
-        "II": np.random.randn(DEFAULT_NUM_MUSCLES),
-        "Ib": np.random.randn(DEFAULT_NUM_MUSCLES),
-        "rnn": np.random.randn(DEFAULT_SHOW_RNN_UNITS),
-        "alpha": np.random.rand(DEFAULT_NUM_MUSCLES),
-        "gamma_s": np.random.rand(DEFAULT_NUM_MUSCLES),
-        "gamma_d": np.random.rand(DEFAULT_NUM_MUSCLES),
-        "target": np.random.rand(DEFAULT_TARGET_GRID_SIZE**2),
+        "Ia": np.random.randn(4),
+        "II": np.random.randn(4),
+        "Ib": np.random.randn(4),
+        "rnn": np.random.randn(32),
+        "alpha": np.random.rand(4),
+        "gamma_s": np.random.rand(4),
+        "gamma_d": np.random.rand(4),
+        "target": np.random.rand(4**2),
     }
 
     frame = diagram.render(activations, step=42, phase="reach", target_visible=True)

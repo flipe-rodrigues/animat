@@ -1,4 +1,4 @@
-<mujoco model="planar-arm">
+<mujoco model="two-joint-planar-arm">
 
   <option timestep="0.01" integrator="RK4">
     <flag warmstart="enable" />
