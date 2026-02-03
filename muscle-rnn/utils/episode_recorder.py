@@ -260,7 +260,7 @@ class NetworkDiagram:
 
         # Draw labels
         label_style = dict(fontsize=10, fontweight="bold", ha="center", color="white")
-        self.ax.text(2, 4.8, "Proprioceptive", **label_style)
+        self.ax.text(2, 4.8, "Sensory Input", **label_style)
         self.ax.text(1, 4.4, "Ia", fontsize=8, ha="center", color="white")
         self.ax.text(1.8, 4.4, "II", fontsize=8, ha="center", color="white")
         self.ax.text(2.6, 4.4, "Ib", fontsize=8, ha="center", color="white")
