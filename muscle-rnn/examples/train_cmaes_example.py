@@ -27,6 +27,7 @@ from cmaes import CMA
 from plants.mujoco import MuJoCoPlant
 from envs.reaching import ReachingEnv
 from models.controllers import RNNController, ControllerConfig
+from utils.episode_recorder import record_and_save
 
 # %% Setup: create plant and calibrate
 xml_path = str(project_root / "mujoco" / "two-joint-planar-arm.xml")
@@ -40,17 +41,22 @@ sensor_stats = plant.calibrate(num_episodes=50, max_steps=100)
 print("Done.")
 
 # %% Create controller and environment
+env = ReachingEnv(xml_path, sensor_stats=sensor_stats)
 config = ControllerConfig(
     num_muscles=plant.num_muscles,
     num_core_units=32,
-    nonlinearity="tanh",
+    core_activation_fn=torch.tanh,
+    motor_activation_fn=torch.sigmoid,
+    core_bias=True,
+    motor_bias=True,
     target_grid_size=4,
     target_sigma=0.5,
+    workspace_bounds=env.workspace_bounds,
 )
 controller = RNNController(config)
 print(f"\nController parameters: {controller.count_parameters()}")
-
-env = ReachingEnv(xml_path, sensor_stats=sensor_stats)
+for name, param in controller.named_parameters():
+    print(f"  {name}: {param.shape}")
 
 
 # %% Evaluation function
@@ -58,34 +64,59 @@ def evaluate(ctrl, env, params, num_episodes=3, max_steps=300):
     """Evaluate parameters on the reaching task."""
     ctrl.set_flat_params(params)
     ctrl.eval()
-
     total_reward = 0.0
     for _ in range(num_episodes):
         obs, _ = env.reset()
         ctrl._reset_state()
-
         for _ in range(max_steps):
             action, _ = ctrl.predict(obs, deterministic=True)
             obs, reward, done, trunc, _ = env.step(action)
             total_reward += reward
-
             if done or trunc:
                 break
-
     return total_reward / num_episodes
 
 
 # %% Training loop
-num_generations = 20  # Use 200+ for real training
-population_size = 16  # Use 32+ for real training
+num_generations = 1000
+inspect_every = 10
+
+# Output directories
+output_dir = project_root / "outputs" / "cmaes_example"
+output_dir.mkdir(parents=True, exist_ok=True)
+inspections_dir = output_dir / "inspections"
+inspections_dir.mkdir(parents=True, exist_ok=True)
 
 initial_params = controller.get_flat_params()
-optimizer = CMA(mean=initial_params, sigma=0.3, population_size=population_size)
-
+optimizer = CMA(mean=initial_params, sigma=0.3)
+population_size = optimizer.population_size
 print(f"\nStarting CMA-ES training")
 print(
     f"  Generations: {num_generations}, Population: {population_size}, Parameters: {len(initial_params)}"
 )
+print(f"  Inspections every {inspect_every} generations -> {inspections_dir}")
+
+
+def run_inspection(controller, gen, output_base_dir):
+    """Save a combined render + network activity video and summary plot."""
+    gen_dir = output_base_dir / f"gen{gen:03d}"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n  [Inspection @ gen {gen}] Recording episode...")
+    try:
+        record_and_save(
+            controller=controller,
+            xml_path=xml_path,
+            sensor_stats=sensor_stats,
+            output_dir=str(gen_dir),
+            max_steps=300,
+            seed=42,  # Fixed seed for reproducibility
+            fps=60,
+        )
+        print(f"  [Inspection @ gen {gen}] Saved to {gen_dir}")
+    except Exception as e:
+        print(f"  [Inspection @ gen {gen}] Failed: {e}")
+
 
 best_fitness = -np.inf
 best_params = None
@@ -108,6 +139,12 @@ for gen in range(num_generations):
     print(
         f"Gen {gen:3d}: best={gen_best:7.2f}, mean={fitness.mean():7.2f}, best_so_far={best_fitness:.2f}"
     )
+
+    # Run inspection at specified intervals (and on last generation)
+    if (gen + 1) % inspect_every == 0 or gen == num_generations - 1:
+        controller.set_flat_params(best_params)
+        controller.eval()
+        run_inspection(controller, gen, inspections_dir)
 
 # %% Plot training progress
 plt.figure(figsize=(10, 4))
@@ -160,8 +197,6 @@ env_render.close()
 print(f"\nSuccess rate: {successes}/10 = {successes*10}%")
 
 # %% Save trained controller
-output_dir = project_root / "outputs" / "cmaes_example"
-output_dir.mkdir(parents=True, exist_ok=True)
 
 torch.save(
     {

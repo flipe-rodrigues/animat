@@ -343,6 +343,17 @@ class EpisodeRecorder:
         self.target_sigma = target_sigma
         self.workspace_bounds = ws_bounds
 
+        # Create target encoder for visualization (reuse controller's if available)
+        if hasattr(controller, 'target_encoder'):
+            self.target_encoder = controller.target_encoder
+        else:
+            from models.modules import TargetEncoder
+            self.target_encoder = TargetEncoder(
+                grid_size=target_grid_size,
+                sigma=target_sigma,
+                workspace_bounds=ws_bounds,
+            )
+
         # Network diagram renderer
         self.diagram = NetworkDiagram(
             num_muscles=self.num_muscles,
@@ -474,17 +485,17 @@ class EpisodeRecorder:
                 np.nan_to_num(arr, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
             )
 
-        # Sensory outputs
+        # Sensory outputs (now a tuple: spindle_Ia, spindle_II, golgi_Ib)
         if "sensory_outputs" in net_info:
             sensory = net_info["sensory_outputs"]
-            data.sensory_Ia.append(sanitize(sensory["spindle_Ia"].squeeze().cpu().numpy()))
-            data.sensory_II.append(sanitize(sensory["spindle_II"].squeeze().cpu().numpy()))
-            data.sensory_Ib.append(sanitize(sensory["golgi_Ib"].squeeze().cpu().numpy()))
+            data.sensory_Ia.append(sanitize(sensory[0].squeeze().cpu().numpy()))
+            data.sensory_II.append(sanitize(sensory[1].squeeze().cpu().numpy()))
+            data.sensory_Ib.append(sanitize(sensory[2].squeeze().cpu().numpy()))
 
-        # RNN hidden
-        if "rnn_hidden" in net_info:
+        # Core state (renamed from rnn_hidden)
+        if "core_state" in net_info and net_info["core_state"] is not None:
             data.rnn_hidden.append(
-                sanitize(net_info["rnn_hidden"].squeeze().cpu().numpy())
+                sanitize(net_info["core_state"].squeeze().cpu().numpy())
             )
 
         # Motor outputs
@@ -505,11 +516,12 @@ class EpisodeRecorder:
             proprio_dim = self.num_muscles * 3
             target_xyz = obs[proprio_dim : proprio_dim + 3]
             target_tensor = torch.tensor(target_xyz, dtype=torch.float32).unsqueeze(0)
-            encoded = self.target_encoder.encode(target_tensor).squeeze().numpy()
-            data.target_encoding.append(encoded)
+            encoded = self.target_encoder(target_tensor).squeeze().detach().cpu().numpy()
+            data.target_encoding.append(sanitize(encoded))
         else:
             # Target not visible - zeros
-            data.target_encoding.append(np.zeros(self.target_encoder.num_units))
+            num_target_units = self.target_grid_size ** 2
+            data.target_encoding.append(np.zeros(num_target_units))
 
     def _get_activations_dict(
         self, data: EpisodeData, idx: int
@@ -594,10 +606,10 @@ def record_and_save(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Get target grid size from controller
-    target_grid_size = controller.target_grid_size
-    target_sigma = controller.target_sigma
-    workspace_bounds = controller.workspace_bounds
+    # Get target grid size from controller's config
+    target_grid_size = controller.config.target_grid_size
+    target_sigma = controller.config.target_sigma
+    workspace_bounds = controller.config.workspace_bounds
 
     # Record
     recorder = EpisodeRecorder(

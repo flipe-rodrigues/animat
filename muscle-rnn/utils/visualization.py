@@ -213,9 +213,9 @@ def record_episode(
             
             if 'sensory_outputs' in step_info:
                 sensory = step_info['sensory_outputs']
-                trajectory['sensory_Ia'].append(sensory['spindle_Ia'].squeeze(0).cpu().numpy())
-                trajectory['sensory_II'].append(sensory['spindle_II'].squeeze(0).cpu().numpy())
-                trajectory['sensory_Ib'].append(sensory['golgi_Ib'].squeeze(0).cpu().numpy())
+                trajectory['sensory_Ia'].append(sensory[0].squeeze(0).cpu().numpy())
+                trajectory['sensory_II'].append(sensory[1].squeeze(0).cpu().numpy())
+                trajectory['sensory_Ib'].append(sensory[2].squeeze(0).cpu().numpy())
             
             # Step environment
             obs, reward, terminated, truncated, env_info = env.step(action)
