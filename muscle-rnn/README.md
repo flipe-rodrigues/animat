@@ -14,14 +14,14 @@ pip install mujoco gymnasium torch numpy matplotlib cma
 muscle-rnn/
 ├── plants/                    # Physics simulation wrappers
 │   └── mujoco.py             # MuJoCo physics wrapper + calibration
-├── models/                    # Neural network models
-│   ├── controllers.py        # Main controllers (RNNController, MLPController)
+├── controllers/               # Neural network controllers
+│   ├── controller.py         # Main Controller class (unified RNN/MLP)
+│   ├── config.py             # Configuration dataclasses
 │   └── modules/              # Modular components
 │       ├── sensory.py        # Proprioceptive neurons (Ia, II, Ib)
 │       ├── motor.py          # Motor neurons (alpha, gamma)
 │       ├── target.py         # Target encoding
-│       ├── rnn.py            # RNN core
-│       └── mlp.py            # MLP core
+│       └── core.py           # RNN and MLP cores
 ├── envs/                      # Environment definitions
 │   └── reaching.py           # Reaching task Gymnasium environment
 ├── training/                  # Training algorithms
@@ -43,19 +43,19 @@ muscle-rnn/
 
 ### Controllers
 
-The project implements two types of controllers:
+The project uses a unified `Controller` class that supports both RNN and MLP architectures based on configuration:
 
-1. **RNNController**: Recurrent neural network with temporal integration
-   - Uses RNN/GRU/LSTM core for sequence processing
+1. **RNN Mode** (when `core_units` is an int): Recurrent neural network with temporal integration
+   - Uses RNN core for sequence processing
    - Maintains hidden state across timesteps
    - Best for tasks requiring temporal memory
 
-2. **MLPController**: Feedforward multilayer perceptron
+2. **MLP Mode** (when `core_units` is a list): Feedforward multilayer perceptron
    - No recurrent connections
    - Larger hidden layers to compensate for lack of memory
    - Used as teacher network in distillation learning
 
-Both controllers share:
+Both modes share:
 - **SensoryModule**: Biologically-inspired proprioceptive neurons
   - Type Ia: Velocity-sensitive (muscle spindle primary)
   - Type II: Length-sensitive (muscle spindle secondary)
@@ -99,19 +99,19 @@ python examples/visualize_example.py
 ### Python API
 
 ```python
-from models import RNNController, ControllerConfig
+from controllers import Controller, ControllerConfig
 from training import run_cmaes_training
 
 # Create model configuration
 config = ControllerConfig(
     num_muscles=4,
-    num_core_units=32,
+    core_units=32,  # int for RNN
     target_grid_size=4,
 )
 
 # Create controller
-controller = RNNController(config)
-print(f"Parameters: {controller.count_parameters()}")
+controller = Controller(config)
+print(f"Parameters: {controller.num_params}")
 
 # Train using CMA-ES
 results = run_cmaes_training(
@@ -126,17 +126,17 @@ results = run_cmaes_training(
 
 ```python
 import torch
-from models import RNNController, ControllerConfig
+from controllers import Controller, ControllerConfig
 
 # Load checkpoint
 checkpoint = torch.load('outputs/best_controller_final.pt')
 config = ControllerConfig(**checkpoint['model_config'])
-controller = RNNController(config)
+controller = Controller(config)
 controller.load_state_dict(checkpoint['model_state_dict'])
 controller.eval()
 
 # Use for inference (SB3-compatible predict interface)
-controller._reset_state()
+controller.reset_state()
 action, _ = controller.predict(observation, deterministic=True)
 
 # Or use forward() directly with tensors
@@ -151,25 +151,27 @@ action, info = controller.forward(obs_tensor)
 Defines neural network architecture:
 
 ```python
-from models import ControllerConfig, RNNController, MLPController
+from controllers import Controller, ControllerConfig, Activation
 
-# RNN Controller - uses int for num_core_units
+# RNN Controller - uses int for core_units
 rnn_config = ControllerConfig(
     num_muscles=4,               # Number of muscle actuators
-    num_core_units=32,           # Int: RNN hidden size
+    core_units=32,               # Int: RNN hidden size
     target_grid_size=4,          # Spatial encoding grid size
     target_sigma=0.5,            # Gaussian encoding width
+    core_activation=Activation.TANH,
+    motor_activation=Activation.SIGMOID,
 )
-rnn_controller = RNNController(rnn_config)
+rnn_controller = Controller(rnn_config)
 
-# MLP Controller - uses list for num_core_units  
+# MLP Controller - uses list for core_units  
 mlp_config = ControllerConfig(
     num_muscles=4,
-    num_core_units=[128, 128],   # List: MLP hidden layer sizes
+    core_units=[128, 128],       # List: MLP hidden layer sizes
     target_grid_size=4,
     target_sigma=0.5,
 )
-mlp_controller = MLPController(mlp_config)
+mlp_controller = Controller(mlp_config)
 ```
 
 ## Key Design Principles

@@ -28,7 +28,7 @@ sys.path.insert(0, str(project_root))
 
 from plants.mujoco import MuJoCoPlant
 from envs.reaching import ReachingEnv
-from models.controllers import RNNController, MLPController, ControllerConfig
+from controllers import Controller, ControllerConfig, create_rnn_controller, create_mlp_controller
 from training.train_distillation import (
     train_teacher_bc,
     train_student_distillation,
@@ -53,22 +53,22 @@ print("Done.")
 # %% Create controllers
 teacher_config = ControllerConfig(
     num_muscles=plant.num_muscles,
-    num_core_units=[128, 128],
+    core_units=[128, 128],  # list for MLP
     target_grid_size=4,
     target_sigma=0.5,
 )
-teacher = MLPController(teacher_config)
+teacher = Controller(teacher_config)
 
 student_config = ControllerConfig(
     num_muscles=plant.num_muscles,
-    num_core_units=32,
+    core_units=32,  # int for RNN
     target_grid_size=4,
     target_sigma=0.5,
 )
-student = RNNController(student_config)
+student = Controller(student_config)
 
-print(f"\nTeacher (MLP) parameters: {teacher.count_parameters()}")
-print(f"Student (RNN) parameters: {student.count_parameters()}")
+print(f"\nTeacher (MLP) parameters: {teacher.num_params}")
+print(f"Student (RNN) parameters: {student.num_params}")
 
 # %%
 print("\nTeacher (MLP) weight shapes:")
@@ -171,7 +171,7 @@ env_render = ReachingEnv(xml_path, render_mode="rgb_array", sensor_stats=sensor_
 student.eval()
 
 obs, info = env_render.reset()
-student._reset_state()
+student.reset_state()
 
 positions = [info["hand_position"].copy()]
 target_pos = info["target_position"].copy()

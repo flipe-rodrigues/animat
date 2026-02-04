@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from envs.reaching import ReachingEnv
-from models.controllers import RNNController, MLPController, ControllerConfig
+from controllers import Controller, ControllerConfig
 
 
 def load_controller(
@@ -45,26 +45,26 @@ def load_controller(
     config_dict = checkpoint.get('model_config', {})
     
     if controller_type == 'rnn':
-        # RNN uses int for num_core_units
+        # RNN uses int for core_units
         config = ControllerConfig(
             num_muscles=config_dict.get('num_muscles', 4),
-            num_core_units=config_dict.get('num_core_units', config_dict.get('rnn_hidden_size', 32)),
+            core_units=config_dict.get('core_units', config_dict.get('num_core_units', config_dict.get('rnn_hidden_size', 32))),
             target_grid_size=config_dict.get('target_grid_size', 4),
             target_sigma=config_dict.get('target_sigma', 0.5),
         )
-        controller = RNNController(config)
+        controller = Controller(config)
     else:
-        # MLP uses list for num_core_units
-        hidden_sizes = config_dict.get('num_core_units', config_dict.get('hidden_sizes', [64, 64]))
+        # MLP uses list for core_units
+        hidden_sizes = config_dict.get('core_units', config_dict.get('num_core_units', config_dict.get('hidden_sizes', [64, 64])))
         if isinstance(hidden_sizes, int):
             hidden_sizes = [hidden_sizes, hidden_sizes]
         config = ControllerConfig(
             num_muscles=config_dict.get('num_muscles', 4),
-            num_core_units=hidden_sizes,
+            core_units=hidden_sizes,
             target_grid_size=config_dict.get('target_grid_size', 4),
             target_sigma=config_dict.get('target_sigma', 0.5),
         )
-        controller = MLPController(config)
+        controller = Controller(config)
     
     controller.load_state_dict(checkpoint['model_state_dict'])
     controller.eval()
@@ -101,7 +101,7 @@ def evaluate_controller(
     with torch.no_grad():
         for ep in range(num_episodes):
             obs, info = env.reset()
-            controller._reset_state()
+            controller.reset_state()
             
             episode_reward = 0
             reach_time = None
@@ -177,7 +177,7 @@ def record_episode(
     controller.eval()
     
     obs, info = env.reset(seed=seed)
-    controller._reset_state()
+    controller.reset_state()
     
     trajectory = {
         'observations': [obs.copy()],

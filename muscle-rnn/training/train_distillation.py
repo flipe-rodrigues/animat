@@ -90,7 +90,7 @@ def collect_expert_data(
 
     for _ in range(num_episodes):
         obs, _ = env.reset()
-        controller._reset_state()
+        controller.reset_state()
         ep_obs, ep_actions = [], []
         
         for _ in range(max_steps):
@@ -119,7 +119,7 @@ def evaluate_controller(
 
     for _ in range(num_episodes):
         obs, _ = env.reset()
-        controller._reset_state()
+        controller.reset_state()
         
         for _ in range(max_steps):
             action, _ = controller.predict(obs, deterministic=True)
@@ -249,7 +249,7 @@ def train_student_distillation(
             
             # Reset student state and run forward pass for each timestep
             batch_size_actual = obs_seq.shape[0]
-            student._reset_state(batch_size_actual, device)
+            student.reset_state(batch_size_actual, device)
             
             pred_actions = []
             for t in range(obs_seq.shape[1]):

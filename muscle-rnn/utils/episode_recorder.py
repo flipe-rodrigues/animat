@@ -335,7 +335,7 @@ class EpisodeRecorder:
 
         # Get attributes from controller's config
         self.num_muscles = controller.config.num_muscles
-        num_core_units = controller.config.num_core_units
+        core_units = controller.config.core_units
         ws_bounds = workspace_bounds or controller.config.workspace_bounds
 
         # Store for target encoding visualization
@@ -347,7 +347,7 @@ class EpisodeRecorder:
         if hasattr(controller, 'target_encoder'):
             self.target_encoder = controller.target_encoder
         else:
-            from models.modules import TargetEncoder
+            from controllers.modules import TargetEncoder
             self.target_encoder = TargetEncoder(
                 grid_size=target_grid_size,
                 sigma=target_sigma,
@@ -357,7 +357,7 @@ class EpisodeRecorder:
         # Network diagram renderer
         self.diagram = NetworkDiagram(
             num_muscles=self.num_muscles,
-            rnn_hidden_size=num_core_units,
+            rnn_hidden_size=core_units,
             target_grid_size=target_grid_size,
         )
 
@@ -396,7 +396,7 @@ class EpisodeRecorder:
 
         # Reset with seed
         obs, info = env.reset(seed=seed)
-        self.controller._reset_state()
+        self.controller.reset_state()
 
         # Store target position
         data.target_position = info.get("target_position", np.zeros(3))
@@ -485,12 +485,14 @@ class EpisodeRecorder:
                 np.nan_to_num(arr, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
             )
 
-        # Sensory outputs (now a tuple: spindle_Ia, spindle_II, golgi_Ib)
-        if "sensory_outputs" in net_info:
-            sensory = net_info["sensory_outputs"]
-            data.sensory_Ia.append(sanitize(sensory[0].squeeze().cpu().numpy()))
-            data.sensory_II.append(sanitize(sensory[1].squeeze().cpu().numpy()))
-            data.sensory_Ib.append(sanitize(sensory[2].squeeze().cpu().numpy()))
+
+        # Sensory outputs: use explicit info fields
+        if "spindle_Ia" in net_info:
+            data.sensory_Ia.append(sanitize(net_info["spindle_Ia"].squeeze().cpu().numpy()))
+        if "spindle_II" in net_info:
+            data.sensory_II.append(sanitize(net_info["spindle_II"].squeeze().cpu().numpy()))
+        if "golgi_Ib" in net_info:
+            data.sensory_Ib.append(sanitize(net_info["golgi_Ib"].squeeze().cpu().numpy()))
 
         # Core state (renamed from rnn_hidden)
         if "core_state" in net_info and net_info["core_state"] is not None:

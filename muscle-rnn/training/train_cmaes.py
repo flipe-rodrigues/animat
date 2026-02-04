@@ -19,7 +19,7 @@ def evaluate_controller(
     """Evaluate a controller on the environment.
     
     Args:
-        controller: Neural network controller with predict() and _reset_state()
+        controller: Neural network controller with predict() and reset_state()
         env: Gym environment
         num_episodes: Number of episodes to average over
         max_steps: Maximum steps per episode
@@ -32,7 +32,7 @@ def evaluate_controller(
     
     for _ in range(num_episodes):
         obs, _ = env.reset()
-        controller._reset_state()
+        controller.reset_state()
         
         for _ in range(max_steps):
             action, _ = controller.predict(obs, deterministic=True)

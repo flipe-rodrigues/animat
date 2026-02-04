@@ -23,7 +23,7 @@ sys.path.insert(0, str(project_root))
 
 from plants.mujoco import MuJoCoPlant
 from envs.reaching import ReachingEnv
-from models.controllers import RNNController, ControllerConfig
+from controllers import Controller, ControllerConfig, Activation
 
 #%% Setup
 xml_path = str(project_root / "mujoco" / "two-joint-planar-arm.xml")
@@ -46,17 +46,17 @@ def load_checkpoint(path: str, plant):
         cfg = ckpt['model_config']
         config = ControllerConfig(
             num_muscles=cfg.get('num_muscles', plant.num_muscles),
-            num_core_units=cfg.get('num_core_units', cfg.get('rnn_hidden_size', 32)),
+            core_units=cfg.get('core_units', cfg.get('num_core_units', cfg.get('rnn_hidden_size', 32))),
             target_grid_size=cfg.get('target_grid_size', 4),
         )
     else:
         config = ControllerConfig(
             num_muscles=ckpt.get('num_muscles', plant.num_muscles),
-            num_core_units=ckpt.get('num_core_units', ckpt.get('rnn_hidden_size', 32)),
+            core_units=ckpt.get('core_units', ckpt.get('num_core_units', ckpt.get('rnn_hidden_size', 32))),
             target_grid_size=ckpt.get('target_grid_size', 4),
         )
     
-    controller = RNNController(config)
+    controller = Controller(config)
     
     # Load state dict
     if 'model_state_dict' in ckpt:
@@ -76,10 +76,10 @@ except FileNotFoundError:
     print("Creating random controller for demo...")
     config = ControllerConfig(
         num_muscles=plant.num_muscles,
-        num_core_units=32,
+        core_units=32,
         target_grid_size=4,
     )
-    controller = RNNController(config)
+    controller = Controller(config)
     controller.eval()
 
 #%% Record an episode with trajectory data
@@ -87,7 +87,7 @@ def record_episode(controller, env, num_muscles, max_steps=300, seed=None):
     """Record episode with full trajectory data."""
     device = torch.device("cpu")
     obs, info = env.reset(seed=seed)
-    controller._reset_state()
+    controller.reset_state()
     
     data = {
         "observations": [obs.copy()],

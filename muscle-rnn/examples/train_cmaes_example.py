@@ -26,7 +26,7 @@ sys.path.insert(0, str(project_root))
 from cmaes import CMA
 from plants.mujoco import MuJoCoPlant
 from envs.reaching import ReachingEnv
-from models.controllers import RNNController, ControllerConfig
+from controllers import Controller, ControllerConfig, Activation, WorkspaceBounds
 from utils.episode_recorder import record_and_save
 
 # %% Setup: create plant and calibrate
@@ -44,17 +44,19 @@ print("Done.")
 env = ReachingEnv(xml_path, sensor_stats=sensor_stats)
 config = ControllerConfig(
     num_muscles=plant.num_muscles,
-    num_core_units=32,
-    core_activation_fn=torch.tanh,
-    motor_activation_fn=torch.sigmoid,
-    core_bias=True,
-    motor_bias=True,
+    core_units=32,  # int for RNN
+    core_activation=Activation.TANH,
+    motor_activation=Activation.SIGMOID,
+    use_core_bias=True,
+    use_motor_bias=True,
     target_grid_size=4,
     target_sigma=0.5,
-    workspace_bounds=env.workspace_bounds,
+    workspace_bounds=WorkspaceBounds(
+        x=env.workspace_bounds["x"], y=env.workspace_bounds["y"]
+    ),
 )
-controller = RNNController(config)
-print(f"\nController parameters: {controller.count_parameters()}")
+controller = Controller(config)
+print(f"\nController parameters: {controller.num_params}")
 for name, param in controller.named_parameters():
     print(f"  {name}: {param.shape}")
 
@@ -67,7 +69,7 @@ def evaluate(ctrl, env, params, num_episodes=3, max_steps=300):
     total_reward = 0.0
     for _ in range(num_episodes):
         obs, _ = env.reset()
-        ctrl._reset_state()
+        ctrl.reset_state()
         for _ in range(max_steps):
             action, _ = ctrl.predict(obs, deterministic=True)
             obs, reward, done, trunc, _ = env.step(action)
@@ -78,8 +80,8 @@ def evaluate(ctrl, env, params, num_episodes=3, max_steps=300):
 
 
 # %% Training loop
-num_generations = 1000
-inspect_every = 10
+num_generations = 3000
+inspect_every = 100
 
 # Output directories
 output_dir = project_root / "outputs" / "cmaes_example"
@@ -174,7 +176,7 @@ env_render = ReachingEnv(xml_path, render_mode="rgb_array", sensor_stats=sensor_
 successes = 0
 for ep in range(10):
     obs, info = env_render.reset()
-    controller._reset_state()
+    controller.reset_state()
 
     episode_reward = 0
     for step in range(300):
